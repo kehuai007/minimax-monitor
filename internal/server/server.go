@@ -53,6 +53,7 @@ func (s *Server) routes() {
 	s.Engine.GET("/api/history", s.handleHistory)
 	s.Engine.POST("/api/settings/key", s.handleSettingsPost)
 	s.Engine.DELETE("/api/settings/key", s.handleSettingsDelete)
+	s.Engine.GET("/api/ws", gin.WrapF(s.handleWS))
 }
 
 // Run starts the HTTP server on addr.
