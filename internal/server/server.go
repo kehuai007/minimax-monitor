@@ -41,6 +41,7 @@ func New(db *storage.DB, store keyringStore) *Server {
 	}
 	s.Engine.Use(gin.Recovery())
 	s.routes()
+	s.mountStatic()
 	return s
 }
 
