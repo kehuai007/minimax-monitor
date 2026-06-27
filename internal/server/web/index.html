@@ -1,5 +1,74 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><title>MiniMax Monitor</title></head>
-<body><h1>MiniMax Monitor</h1><p id="status">Loading…</p></body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MiniMax Token Plan Monitor</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span id="wsDot" class="dot" title="WebSocket"></span>
+      <h1>MiniMax Monitor</h1>
+    </div>
+    <div class="ranges" id="ranges">
+      <button data-range="1h"  class="range-btn">1h</button>
+      <button data-range="6h"  class="range-btn">6h</button>
+      <button data-range="24h" class="range-btn active">24h</button>
+      <button data-range="7d"  class="range-btn">7d</button>
+      <button data-range="31d" class="range-btn">31d</button>
+    </div>
+    <div class="header-right">
+      <span id="lastUpdate" class="muted">--</span>
+      <button id="settingsBtn" class="icon-btn" title="设置">⚙</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="emptyState" class="empty hidden">
+      <h2>请先配置 API Key</h2>
+      <p class="muted">点击右上角 ⚙ 进入设置。</p>
+      <button id="emptySettingsBtn" class="primary">前往设置</button>
+    </section>
+
+    <section id="cards" class="cards"></section>
+
+    <section id="charts" class="charts"></section>
+  </main>
+
+  <footer class="statusbar">
+    <span>WS <span id="wsStatus" class="ok">●</span></span>
+    <span>抓取 <span id="fetchAgo">--</span> 前</span>
+    <span>错误 <span id="errCount">0</span></span>
+    <span>保留 <span id="retention">31</span>d</span>
+    <span class="muted">v1.0</span>
+  </footer>
+
+  <!-- Settings modal -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-body">
+      <h2>设置</h2>
+      <div class="form-row">
+        <label>API Key 状态</label>
+        <span id="keyStatus" class="badge">● 未配置</span>
+      </div>
+      <div class="form-row" id="keyInputRow">
+        <label for="keyInput">API Key</label>
+        <input id="keyInput" type="password" placeholder="sk-cp-..." autocomplete="off" />
+      </div>
+      <div class="form-error hidden" id="keyError"></div>
+      <div class="form-actions">
+        <button id="keyChangeBtn" class="link hidden">更换</button>
+        <div class="spacer"></div>
+        <button id="keyCancelBtn">取消</button>
+        <button id="keySaveBtn" class="primary">保存并验证</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/vendor/echarts.min.js"></script>
+  <script src="/app.js"></script>
+</body>
 </html>
