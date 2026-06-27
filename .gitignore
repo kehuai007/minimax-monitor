@@ -1,0 +1,9 @@
+dist/
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+.idea/
+.vscode/
+.superpowers/
