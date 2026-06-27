@@ -84,7 +84,7 @@ func (s *Server) handleStatus(c *gin.Context) {
 			tt := t
 			st.LastFetchAt = &tt
 		}
-		_ = n // reserved for future use
+		st.ConsecErrors = n
 		st.LastError = lastErr
 	}
 	c.JSON(http.StatusOK, st)
