@@ -10,7 +10,9 @@ import (
 // keyringStore is the subset of the keyring store the server depends on.
 // It is unexported because the real implementation lives in internal/keyring.
 type keyringStore interface {
-	Get(provider string) (string, error)
+	Get() (string, error)
+	Set(string) error
+	Delete() error
 }
 
 // Server wires HTTP routes to storage and the WebSocket hub.
