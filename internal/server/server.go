@@ -25,6 +25,8 @@ type Server struct {
 	DBPath       string
 	PollInterval time.Duration
 	Stats        func() (time.Time, int, string)
+	Validator    ValidatorFunc
+	OnKeyChange  func()
 }
 
 // New constructs a Server. db and store may be nil at construction time;
@@ -49,6 +51,8 @@ func (s *Server) routes() {
 	s.Engine.GET("/api/status", s.handleStatus)
 	s.Engine.GET("/api/models", s.handleModels)
 	s.Engine.GET("/api/history", s.handleHistory)
+	s.Engine.POST("/api/settings/key", s.handleSettingsPost)
+	s.Engine.DELETE("/api/settings/key", s.handleSettingsDelete)
 }
 
 // Run starts the HTTP server on addr.
