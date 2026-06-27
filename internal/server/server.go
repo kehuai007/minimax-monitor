@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"minimax-monitor/internal/storage"
@@ -17,10 +18,13 @@ type keyringStore interface {
 
 // Server wires HTTP routes to storage and the WebSocket hub.
 type Server struct {
-	Engine *gin.Engine
-	DB     *storage.DB
-	Store  keyringStore
-	Hub    Broadcaster
+	Engine       *gin.Engine
+	DB           *storage.DB
+	Store        keyringStore
+	Hub          Broadcaster
+	DBPath       string
+	PollInterval time.Duration
+	Stats        func() (time.Time, int, string)
 }
 
 // New constructs a Server. db and store may be nil at construction time;
@@ -42,6 +46,9 @@ func (s *Server) routes() {
 	s.Engine.GET("/api/healthz", func(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
 	})
+	s.Engine.GET("/api/status", s.handleStatus)
+	s.Engine.GET("/api/models", s.handleModels)
+	s.Engine.GET("/api/history", s.handleHistory)
 }
 
 // Run starts the HTTP server on addr.
