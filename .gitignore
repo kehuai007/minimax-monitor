@@ -7,3 +7,5 @@ data/
 .idea/
 .vscode/
 .superpowers/
+minimax-monitor.exe
+test.txt
