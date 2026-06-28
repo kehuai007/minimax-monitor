@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -139,4 +140,55 @@ func (db *DB) PruneOlderThan(ctx context.Context, cutoffMs int64) (int64, error)
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// InsertOne is a test seam for inserting a single Snapshot row directly.
+// Production code uses Insert(resp, t) which marshals an APIResponse.
+func (db *DB) InsertOne(ctx context.Context, s Snapshot) error {
+	raw, _ := json.Marshal(s)
+	_, err := db.ExecContext(ctx, `INSERT INTO snapshot(
+		fetched_at, model_name,
+		interval_remaining_pct, interval_status, interval_total_count, interval_usage_count,
+		interval_end_at, interval_remains_ms,
+		weekly_remaining_pct, weekly_status, weekly_total_count, weekly_usage_count,
+		weekly_end_at, weekly_remains_ms, raw_json
+	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		s.FetchedAt, s.ModelName,
+		s.IntervalRemainingPct, s.IntervalStatus, s.IntervalTotalCount, s.IntervalUsageCount,
+		s.IntervalEndAt, s.IntervalRemainsMs,
+		s.WeeklyRemainingPct, s.WeeklyStatus, s.WeeklyTotalCount, s.WeeklyUsageCount,
+		s.WeeklyEndAt, s.WeeklyRemainsMs, string(raw),
+	)
+	return err
+}
+
+// PrevSnapshot returns the snapshot for `model` whose fetched_at is the
+// largest value strictly less than `beforeMs`. Returns (Snapshot{}, nil)
+// if no such row exists.
+func (db *DB) PrevSnapshot(ctx context.Context, model string, beforeMs int64) (Snapshot, error) {
+	row := db.QueryRowContext(ctx, `
+		SELECT id, fetched_at, model_name,
+			interval_remaining_pct, interval_status, interval_total_count, interval_usage_count,
+			interval_end_at, interval_remains_ms,
+			weekly_remaining_pct, weekly_status, weekly_total_count, weekly_usage_count,
+			weekly_end_at, weekly_remains_ms, raw_json
+		FROM snapshot
+		WHERE model_name = ? AND fetched_at < ?
+		ORDER BY fetched_at DESC
+		LIMIT 1`, model, beforeMs)
+	var s Snapshot
+	err := row.Scan(
+		&s.ID, &s.FetchedAt, &s.ModelName,
+		&s.IntervalRemainingPct, &s.IntervalStatus, &s.IntervalTotalCount, &s.IntervalUsageCount,
+		&s.IntervalEndAt, &s.IntervalRemainsMs,
+		&s.WeeklyRemainingPct, &s.WeeklyStatus, &s.WeeklyTotalCount, &s.WeeklyUsageCount,
+		&s.WeeklyEndAt, &s.WeeklyRemainsMs, &s.RawJSON,
+	)
+	if err == sql.ErrNoRows {
+		return Snapshot{}, nil
+	}
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return s, nil
 }

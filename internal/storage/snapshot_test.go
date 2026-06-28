@@ -169,3 +169,81 @@ func TestSnapshot_JSONTags(t *testing.T) {
 		t.Errorf("model_name = %v, want general", got["model_name"])
 	}
 }
+
+func TestPrevSnapshot_ReturnsLatestBefore(t *testing.T) {
+	db := openTest(t)
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	// Insert three snapshots: oldest, middle, newest
+	for i, ts := range []int64{now - 30000, now - 20000, now - 10000} {
+		pct := 80 - i // 80, 79, 78
+		s := Snapshot{
+			FetchedAt:            ts,
+			ModelName:            "general",
+			IntervalRemainingPct: &pct,
+		}
+		if err := db.InsertOne(ctx, s); err != nil {
+			t.Fatalf("InsertOne #%d: %v", i, err)
+		}
+	}
+	// Query "before now - 5000" — should return the newest of the three (now - 10000, remaining=78)
+	got, err := db.PrevSnapshot(ctx, "general", now-5000)
+	if err != nil {
+		t.Fatalf("PrevSnapshot: %v", err)
+	}
+	if got.FetchedAt != now-10000 {
+		t.Errorf("FetchedAt = %d, want %d", got.FetchedAt, now-10000)
+	}
+	if got.IntervalRemainingPct == nil || *got.IntervalRemainingPct != 78 {
+		t.Errorf("IntervalRemainingPct = %v, want 78", got.IntervalRemainingPct)
+	}
+}
+
+func TestPrevSnapshot_StrictLessThan(t *testing.T) {
+	db := openTest(t)
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	pct := 50
+	s := Snapshot{FetchedAt: now, ModelName: "general", IntervalRemainingPct: &pct}
+	if err := db.InsertOne(ctx, s); err != nil {
+		t.Fatalf("InsertOne: %v", err)
+	}
+	// Query "before now" (strict): the snapshot AT now must NOT be returned
+	got, err := db.PrevSnapshot(ctx, "general", now)
+	if err != nil {
+		t.Fatalf("PrevSnapshot: %v", err)
+	}
+	if got.FetchedAt != 0 {
+		t.Errorf("FetchedAt = %d, want 0 (no row strictly before now)", got.FetchedAt)
+	}
+}
+
+func TestPrevSnapshot_NoRows(t *testing.T) {
+	db := openTest(t)
+	got, err := db.PrevSnapshot(context.Background(), "general", time.Now().UnixMilli())
+	if err != nil {
+		t.Fatalf("PrevSnapshot: %v", err)
+	}
+	if got.FetchedAt != 0 {
+		t.Errorf("FetchedAt = %d, want 0 (empty table)", got.FetchedAt)
+	}
+}
+
+func TestPrevSnapshot_DifferentModel(t *testing.T) {
+	db := openTest(t)
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	pct := 80
+	// Insert ONLY a "video" snapshot. Querying for "general" must NOT return it.
+	s := Snapshot{FetchedAt: now - 10000, ModelName: "video", IntervalRemainingPct: &pct}
+	if err := db.InsertOne(ctx, s); err != nil {
+		t.Fatalf("InsertOne: %v", err)
+	}
+	got, err := db.PrevSnapshot(ctx, "general", now)
+	if err != nil {
+		t.Fatalf("PrevSnapshot: %v", err)
+	}
+	if got.FetchedAt != 0 {
+		t.Errorf("FetchedAt = %d, want 0 (video row excluded by model filter)", got.FetchedAt)
+	}
+}
