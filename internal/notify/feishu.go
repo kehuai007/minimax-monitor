@@ -135,30 +135,42 @@ func hmacSign(secret, ts, body string) string {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
-// buildCardPayload constructs the interactive-card JSON sent to Feishu.
+// buildCardPayload dispatches to the alert or reset card variant based on n.Kind.
 func buildCardPayload(n Notification) map[string]any {
-	var titlePrefix string
+	if n.Kind == KindReset {
+		return buildResetCard(n)
+	}
+	return buildAlertCard(n)
+}
+
+// buildAlertCard produces the standard threshold-crossing card. The
+// consumed (Used) value is the prominent field; remaining is secondary;
+// threshold label uses '≥X%' to reflect the consumption-forward semantic.
+func buildAlertCard(n Notification) map[string]any {
+	titlePrefix := "⚠️ 配额告警 · "
 	if n.IsTest {
 		titlePrefix = "[测试] "
-	} else {
-		titlePrefix = "⚠️ 配额告警 · "
 	}
 	title := titlePrefix + n.Model
 
 	fields := []map[string]any{
 		{"text": map[string]any{"tag": "lark_md", "content": "**模型**\n`" + n.Model + "`"}},
 		{"text": map[string]any{"tag": "lark_md", "content": "**触发时间**\n" + time.UnixMilli(n.FetchedAt).Format("2006-01-02 15:04:05")}},
-		{"text": map[string]any{"tag": "lark_md", "content": fmt.Sprintf("**剩余**\n**%d%%**", n.Remaining)}},
-		{"text": map[string]any{"tag": "lark_md", "content": fmt.Sprintf("**已用**\n%d%%", n.Used)}},
-		{"text": map[string]any{"tag": "lark_md", "content": fmt.Sprintf("**阈值**\n≤%d%%", n.Threshold)}},
+		// Consumption is the prominent value (bold); remaining is secondary.
+		{"text": map[string]any{"tag": "lark_md", "content": fmt.Sprintf("**消耗**\n**%d%%**", n.Used)}},
+		{"text": map[string]any{"tag": "lark_md", "content": fmt.Sprintf("**剩余**\n%d%%", n.Remaining)}},
+		{"text": map[string]any{"tag": "lark_md", "content": fmt.Sprintf("**阈值**\n≥%d%%", n.Threshold)}},
 	}
 	if n.PrevNotifiedPct != nil {
+		// PrevNotifiedPct is stored as the remaining value at the
+		// previous alert; show the corresponding consumption figure.
+		consumedAtPrev := 100 - *n.PrevNotifiedPct
 		fields = append(fields, map[string]any{
-			"text": map[string]any{"tag": "lark_md", "content": fmt.Sprintf("**上次告警**\n%d%%", *n.PrevNotifiedPct)},
+			"text": map[string]any{"tag": "lark_md", "content": fmt.Sprintf("**上次告警 (消耗)**\n%d%%", consumedAtPrev)},
 		})
 	} else {
 		fields = append(fields, map[string]any{
-			"text": map[string]any{"tag": "lark_md", "content": "**上次告警**\n—"},
+			"text": map[string]any{"tag": "lark_md", "content": "**上次告警 (消耗)**\n—"},
 		})
 	}
 	if n.IntervalResetAt != nil {
@@ -203,20 +215,7 @@ func buildCardPayload(n Notification) map[string]any {
 		map[string]any{"tag": "div", "fields": fields},
 		map[string]any{"tag": "hr"},
 	}
-
-	var noteText string
-	if len(n.RecentTrend) > 0 {
-		parts := make([]string, 0, len(n.RecentTrend))
-		for _, p := range n.RecentTrend {
-			parts = append(parts, fmt.Sprintf("%d", p.Remaining))
-		}
-		noteText = "最近10分钟趋势(剩余%): " + strings.Join(parts, " → ")
-	} else {
-		noteText = "无近期趋势数据"
-	}
-	if n.IsTest {
-		noteText = "这是测试消息,不影响告警状态。"
-	}
+	noteText := buildTrendNoteText(n)
 	elements = append(elements, map[string]any{
 		"tag": "note",
 		"elements": []map[string]any{
@@ -234,4 +233,25 @@ func buildCardPayload(n Notification) map[string]any {
 			"elements": elements,
 		},
 	}
+}
+
+func buildTrendNoteText(n Notification) string {
+	if n.IsTest {
+		return "这是测试消息,不影响告警状态。"
+	}
+	if len(n.RecentTrend) == 0 {
+		return "无近期趋势数据"
+	}
+	parts := make([]string, 0, len(n.RecentTrend))
+	for _, p := range n.RecentTrend {
+		parts = append(parts, fmt.Sprintf("%d", p.Remaining))
+	}
+	return "最近10分钟趋势(剩余%): " + strings.Join(parts, " → ")
+}
+
+// buildResetCard is a placeholder; the real reset card layout is
+// implemented in Task 6. For now it returns the standard alert card so
+// dispatch in buildCardPayload does not panic during the interim.
+func buildResetCard(n Notification) map[string]any {
+	return buildAlertCard(n) // stub until Task 6
 }
