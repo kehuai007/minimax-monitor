@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -27,6 +28,8 @@ type Server struct {
 	Stats        func() (time.Time, int, string)
 	Validator    ValidatorFunc
 	OnKeyChange  func()
+	AlertConfig  func() storage.AlertConfig
+	AlertTest    func(ctx context.Context) (int64, error)
 }
 
 // New constructs a Server. db and store may be nil at construction time;
@@ -58,6 +61,9 @@ func (s *Server) routes() {
 	s.Engine.GET("/api/history", s.handleHistory)
 	s.Engine.POST("/api/settings/key", s.handleSettingsPost)
 	s.Engine.DELETE("/api/settings/key", s.handleSettingsDelete)
+	s.Engine.GET("/api/settings/alert", s.handleAlertGet)
+	s.Engine.PUT("/api/settings/alert", s.handleAlertPut)
+	s.Engine.POST("/api/settings/alert/test", s.handleAlertTest)
 	s.Engine.GET("/api/ws", gin.WrapF(s.handleWS))
 }
 
