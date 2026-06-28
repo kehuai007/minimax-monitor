@@ -50,7 +50,9 @@ func (e *AlertEngine) Evaluate(ctx context.Context, snaps []storage.Snapshot) er
 			}
 			continue
 		}
-		if remaining > cfg.Threshold {
+		consumed := 100 - remaining
+
+		if consumed < cfg.Threshold {
 			continue
 		}
 		st, err := e.db.GetAlertState(ctx, s.ModelName)
@@ -61,16 +63,13 @@ func (e *AlertEngine) Evaluate(ctx context.Context, snaps []storage.Snapshot) er
 		if containsInt(st.NotifiedPcts, remaining) {
 			continue
 		}
-
 		trend := e.recentTrend(ctx, s.ModelName, now)
 		n := buildNotification(s, cfg.Threshold, remaining, st.NotifiedPcts, trend, now)
-
 		if err := e.notifier.Send(ctx, cfg.URL, n); err != nil {
 			slog.Warn("alert: send failed",
 				"model", s.ModelName, "pct", remaining, "err", err)
 			continue
 		}
-
 		st.NotifiedPcts = appendUniqueSorted(st.NotifiedPcts, remaining)
 		st.UpdatedAt = now.UnixMilli()
 		if err := e.db.SetAlertState(ctx, s.ModelName, st); err != nil {

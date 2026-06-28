@@ -80,7 +80,7 @@ func TestAlertEngine_AboveThreshold_NoCall(t *testing.T) {
 	db := openTestDB(t)
 	fn := &fakeNotifier{}
 	eng := NewAlertEngine(db, fn, func() storage.AlertConfig { return storage.AlertConfig{Enabled: true, URL: "x", Threshold: 80} })
-	if err := eng.Evaluate(context.Background(), []storage.Snapshot{snap("general", 81)}); err != nil {
+	if err := eng.Evaluate(context.Background(), []storage.Snapshot{snap("general", 21)}); err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
 	if got := len(fn.Calls()); got != 0 {
@@ -92,18 +92,26 @@ func TestAlertEngine_CrossingThreshold_OneCall(t *testing.T) {
 	db := openTestDB(t)
 	fn := &fakeNotifier{}
 	eng := NewAlertEngine(db, fn, func() storage.AlertConfig { return storage.AlertConfig{Enabled: true, URL: "x", Threshold: 80} })
-	if err := eng.Evaluate(context.Background(), []storage.Snapshot{snap("general", 80)}); err != nil {
+	// consumed = 100 - 20 = 80 ≥ threshold 80 → trigger
+	if err := eng.Evaluate(context.Background(), []storage.Snapshot{snap("general", 20)}); err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
 	if got := len(fn.Calls()); got != 1 {
 		t.Errorf("calls = %d, want 1", got)
 	}
-	if c := fn.Calls()[0]; c.Remaining != 80 {
-		t.Errorf("Remaining = %d, want 80", c.Remaining)
+	c := fn.Calls()[0]
+	if c.Remaining != 20 {
+		t.Errorf("Remaining = %d, want 20", c.Remaining)
+	}
+	if c.Used != 80 {
+		t.Errorf("Used = %d, want 80", c.Used)
+	}
+	if c.Kind != KindAlert {
+		t.Errorf("Kind = %q, want %q (alert)", c.Kind, KindAlert)
 	}
 	st, _ := db.GetAlertState(context.Background(), "general")
-	if len(st.NotifiedPcts) != 1 || st.NotifiedPcts[0] != 80 {
-		t.Errorf("state after = %v, want [80]", st.NotifiedPcts)
+	if len(st.NotifiedPcts) != 1 || st.NotifiedPcts[0] != 20 {
+		t.Errorf("state after = %v, want [20]", st.NotifiedPcts)
 	}
 }
 
@@ -112,9 +120,10 @@ func TestAlertEngine_Duplicate_NoSecondCall(t *testing.T) {
 	fn := &fakeNotifier{}
 	eng := NewAlertEngine(db, fn, func() storage.AlertConfig { return storage.AlertConfig{Enabled: true, URL: "x", Threshold: 80} })
 	ctx := context.Background()
-	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 80)})
-	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 80)})
-	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 80)})
+	// consumed=80 (remaining=20); same value thrice → 1 call
+	for i := 0; i < 3; i++ {
+		_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 20)})
+	}
 	if got := len(fn.Calls()); got != 1 {
 		t.Errorf("calls = %d, want 1 (dedup)", got)
 	}
@@ -125,11 +134,17 @@ func TestAlertEngine_DropBy1_NewCallEachTime(t *testing.T) {
 	fn := &fakeNotifier{}
 	eng := NewAlertEngine(db, fn, func() storage.AlertConfig { return storage.AlertConfig{Enabled: true, URL: "x", Threshold: 80} })
 	ctx := context.Background()
-	for _, p := range []int{80, 79, 78, 77} {
+	// consumed climbs 80 → 83 (remaining 20 → 17); one call per consumed integer crossed
+	for _, p := range []int{20, 19, 18, 17} {
 		_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", p)})
 	}
 	if got := len(fn.Calls()); got != 4 {
 		t.Errorf("calls = %d, want 4 (one per pct drop)", got)
+	}
+	for i, c := range fn.Calls() {
+		if c.Used != 80+i {
+			t.Errorf("call[%d] Used = %d, want %d", i, c.Used, 80+i)
+		}
 	}
 }
 
@@ -138,8 +153,9 @@ func TestAlertEngine_IntervalReset_ClearsState(t *testing.T) {
 	fn := &fakeNotifier{}
 	eng := NewAlertEngine(db, fn, func() storage.AlertConfig { return storage.AlertConfig{Enabled: true, URL: "x", Threshold: 80} })
 	ctx := context.Background()
-	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 80)})
-	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 79)})
+	// consumed = 80 (remaining=20); consumed = 81 (remaining=19)
+	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 20)})
+	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 19)})
 	if got := len(fn.Calls()); got != 2 {
 		t.Fatalf("setup: calls = %d, want 2", got)
 	}
@@ -148,7 +164,7 @@ func TestAlertEngine_IntervalReset_ClearsState(t *testing.T) {
 	if len(st.NotifiedPcts) != 0 {
 		t.Errorf("state after reset = %v, want empty", st.NotifiedPcts)
 	}
-	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 80)})
+	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 20)})
 	if got := len(fn.Calls()); got != 3 {
 		t.Errorf("calls after reset+redrop = %d, want 3", got)
 	}
@@ -159,7 +175,7 @@ func TestAlertEngine_SendFailure_DoesNotAdvance(t *testing.T) {
 	fn := &fakeNotifier{err: errors.New("network down")}
 	eng := NewAlertEngine(db, fn, func() storage.AlertConfig { return storage.AlertConfig{Enabled: true, URL: "x", Threshold: 80} })
 	ctx := context.Background()
-	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 80)})
+	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 20)}) // consumed=80, would fire
 	st, _ := db.GetAlertState(ctx, "general")
 	if len(st.NotifiedPcts) != 0 {
 		t.Errorf("state after failed send = %v, want empty", st.NotifiedPcts)
