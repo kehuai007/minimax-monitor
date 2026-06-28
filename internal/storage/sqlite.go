@@ -33,6 +33,15 @@ CREATE TABLE IF NOT EXISTS snapshot (
 );
 CREATE INDEX IF NOT EXISTS idx_snap_model_time
     ON snapshot(model_name, fetched_at DESC);
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS alert_state (
+    model_name    TEXT PRIMARY KEY,
+    notified_pcts TEXT NOT NULL,
+    updated_at    INTEGER NOT NULL
+);
 `
 
 func Open(path string) (*DB, error) {
