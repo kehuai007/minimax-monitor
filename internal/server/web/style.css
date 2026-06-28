@@ -59,7 +59,10 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 .card[data-model="general"] { --accent: var(--accent-general); }
 .card[data-model="video"]   { --accent: var(--accent-video); }
 .card h3 { margin: 0 0 4px; font-size: 13px; color: var(--text-muted); font-weight: 500;
-  text-transform: uppercase; letter-spacing: 0.5px; }
+  text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px; }
+.pct-kind { display: inline-block; font-size: 10px; padding: 2px 6px;
+  border-radius: 4px; background: rgba(0, 212, 255, 0.1); color: var(--accent-general);
+  text-transform: none; letter-spacing: 0; font-weight: 500; }
 .pct { font-family: var(--font-mono); font-size: 36px; font-weight: 600; line-height: 1.1;
   margin: 8px 0; color: var(--text-primary); }
 .bar { height: 6px; background: var(--bg-card-hi); border-radius: 3px; overflow: hidden;

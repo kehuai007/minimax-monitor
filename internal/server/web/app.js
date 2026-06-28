@@ -83,17 +83,20 @@
       const card = document.createElement('div');
       card.className = 'card';
       card.dataset.model = name;
-      const pct = m.interval_remaining_pct ?? 0;
-      const weekly = m.weekly_remaining_pct;
+      // 已消耗 = 100% - 剩余
+      const remainPct = m.interval_remaining_pct ?? 0;
+      const consumed = Math.max(0, Math.min(100, 100 - remainPct));
+      const remainWeekly = m.weekly_remaining_pct;
+      const consumedWeekly = (remainWeekly == null) ? null : Math.max(0, Math.min(100, 100 - remainWeekly));
       const remainsMs = m.interval_remains_ms ?? 0;
       const iStatus = statusText(m.interval_status);
       const wStatus = statusText(m.weekly_status);
       card.innerHTML = `
-        <h3>${name}</h3>
-        <div class="pct" data-target="${pct}">${pct}%</div>
-        <div class="bar"><div class="bar-fill" style="width:${pct}%"></div></div>
+        <h3>${name} <span class="pct-kind">已用</span></h3>
+        <div class="pct" data-target="${consumed}">${consumed}%</div>
+        <div class="bar"><div class="bar-fill" style="width:${consumed}%"></div></div>
         <div class="meta"><span>区间</span><b>${formatRangeMs(remainsMs)} · ${iStatus}</b></div>
-        <div class="meta"><span>本周</span><b>${weekly ?? '--'}% · ${wStatus}</b></div>
+        <div class="meta"><span>本周</span><b>${consumedWeekly == null ? '--' : consumedWeekly}% · ${wStatus}</b></div>
       `;
       root.appendChild(card);
     });
@@ -255,7 +258,7 @@
     const card = document.createElement('div');
     card.className = 'chart-card';
     card.dataset.model = name;
-    card.innerHTML = `<div class="chart-title">${name} · 剩余率 (${state.range})</div><div class="chart"></div>`;
+    card.innerHTML = `<div class="chart-title">${name} · 消耗率 (${state.range})</div><div class="chart"></div>`;
     root.appendChild(card);
     const el = card.querySelector('.chart');
     const c = echarts.init(el, null, { renderer: 'canvas' });
@@ -267,18 +270,17 @@
   function buildOption(name, points, from, to) {
     const accent = ACCENT[name] || '#00d4ff';
     const xs = points.map((p) => p.t);
-    // Interval series (solid line + light band)
-    const iMin = points.map((p) => p.interval_min);
-    const iMax = points.map((p) => p.interval_max);
-    const iAvg = points.map((p) => +p.interval_avg.toFixed(2));
-    // Weekly series (dashed line, lighter)
-    const wAvg = points.map((p) => +p.weekly_avg.toFixed(2));
+    // 反转剩余 -> 已消耗(100% - remaining)
+    const iMin = points.map((p) => +(100 - p.interval_max).toFixed(2));
+    const iMax = points.map((p) => +(100 - p.interval_min).toFixed(2));
+    const iAvg = points.map((p) => +(100 - p.interval_avg).toFixed(2));
+    const wAvg = points.map((p) => +(100 - p.weekly_avg).toFixed(2));
     return {
       animation: true,
       animationDuration: 600,
       animationEasing: 'cubicOut',
       legend: {
-        data: ['区间', '本周'],
+        data: ['区间消耗', '本周消耗'],
         textStyle: { color: '#6b7390', fontSize: 11 },
         top: 0, right: 8,
         itemWidth: 14, itemHeight: 8,
@@ -293,8 +295,8 @@
           const p = params[0];
           const i = p.dataIndex;
           return `${new Date(xs[i]).toLocaleString()}<br/>` +
-            `<b style="color:${accent}">区间</b> min ${iMin[i].toFixed(1)}% · avg ${iAvg[i]}% · max ${iMax[i].toFixed(1)}%<br/>` +
-            `<b style="color:#a855f7">本周</b> avg ${wAvg[i]}%`;
+            `<b style="color:${accent}">区间消耗</b> min ${iMin[i].toFixed(1)}% · avg ${iAvg[i]}% · max ${iMax[i].toFixed(1)}%<br/>` +
+            `<b style="color:#a855f7">本周消耗</b> avg ${wAvg[i]}%`;
         },
       },
       xAxis: {
@@ -312,7 +314,7 @@
       },
       series: [
         {
-          name: '区间',
+          name: '区间消耗',
           type: 'line',
           data: xs.map((t, i) => [t, iMin[i], iMax[i]]),
           lineStyle: { opacity: 0 },
@@ -322,7 +324,7 @@
           smooth: true,
         },
         {
-          name: '区间',
+          name: '区间消耗',
           type: 'line',
           data: xs.map((t, i) => [t, iAvg[i]]),
           lineStyle: { color: accent, width: 2 },
@@ -332,7 +334,7 @@
           smooth: true,
         },
         {
-          name: '本周',
+          name: '本周消耗',
           type: 'line',
           data: xs.map((t, i) => [t, wAvg[i]]),
           lineStyle: { color: '#a855f7', width: 1.5, type: 'dashed' },
