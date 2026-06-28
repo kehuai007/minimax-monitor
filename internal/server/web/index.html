@@ -65,6 +65,39 @@
         <button id="keyCancelBtn">取消</button>
         <button id="keySaveBtn" class="primary">保存并验证</button>
       </div>
+
+      <div class="alert-section">
+        <button type="button" class="section-toggle" id="alertToggle" aria-expanded="false">
+          <span class="chev">▸</span>
+          <span class="section-title">告警通知</span>
+          <span class="badge" id="alertBadge">未配置</span>
+        </button>
+        <div class="section-body hidden" id="alertBody">
+          <div class="form-row switch-row">
+            <label class="switch">
+              <input type="checkbox" id="alertEnabled" />
+              <span>启用</span>
+            </label>
+          </div>
+          <div class="form-row">
+            <label for="alertURL">Webhook URL</label>
+            <input id="alertURL" type="text" autocomplete="off"
+                   placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..." />
+            <small class="muted">支持 ?secret=xxx 自动签名</small>
+          </div>
+          <div class="form-row">
+            <label for="alertThreshold">阈值 (剩余%)</label>
+            <input id="alertThreshold" type="number" min="1" max="100" value="80" />
+            <small class="muted">剩余≤该值告警;每下降1%再告警一次</small>
+          </div>
+          <div class="form-error hidden" id="alertError"></div>
+          <div class="form-actions">
+            <button type="button" id="alertTestBtn" class="link">发送测试</button>
+            <div class="spacer"></div>
+            <button type="button" id="alertSaveBtn" class="primary">保存</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
