@@ -29,9 +29,9 @@ type Snapshot struct {
 }
 
 type Bucket struct {
-	T         int64
-	Min, Max  float64
-	Avg       float64
+	T                    int64
+	IntervalMin, IntervalMax, IntervalAvg float64
+	WeeklyMin,   WeeklyMax,   WeeklyAvg   float64
 }
 
 func (db *DB) Insert(ctx context.Context, resp *model.APIResponse, t time.Time) error {
@@ -108,7 +108,8 @@ func (db *DB) History(ctx context.Context, modelName string, fromMs, toMs, bucke
 	}
 	rows, err := db.QueryContext(ctx, `
 		SELECT (fetched_at / ?) * ? AS bucket_t,
-			MIN(interval_remaining_pct), MAX(interval_remaining_pct), AVG(interval_remaining_pct)
+			MIN(interval_remaining_pct), MAX(interval_remaining_pct), AVG(interval_remaining_pct),
+			MIN(weekly_remaining_pct),   MAX(weekly_remaining_pct),   AVG(weekly_remaining_pct)
 		FROM snapshot
 		WHERE model_name = ? AND fetched_at >= ? AND fetched_at < ?
 		GROUP BY bucket_t
@@ -120,7 +121,11 @@ func (db *DB) History(ctx context.Context, modelName string, fromMs, toMs, bucke
 	var out []Bucket
 	for rows.Next() {
 		var b Bucket
-		if err := rows.Scan(&b.T, &b.Min, &b.Max, &b.Avg); err != nil {
+		if err := rows.Scan(
+			&b.T,
+			&b.IntervalMin, &b.IntervalMax, &b.IntervalAvg,
+			&b.WeeklyMin, &b.WeeklyMax, &b.WeeklyAvg,
+		); err != nil {
 			return nil, err
 		}
 		out = append(out, b)

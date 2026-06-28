@@ -68,6 +68,7 @@
   }
 
   // -------- Cards --------
+  const statusText = (s) => s === 1 ? '活跃' : s === 3 ? '未活动' : '--';
   function renderCards() {
     const root = $('cards');
     if (state.models.size === 0) {
@@ -85,12 +86,14 @@
       const pct = m.interval_remaining_pct ?? 0;
       const weekly = m.weekly_remaining_pct;
       const remainsMs = m.interval_remains_ms ?? 0;
+      const iStatus = statusText(m.interval_status);
+      const wStatus = statusText(m.weekly_status);
       card.innerHTML = `
         <h3>${name}</h3>
         <div class="pct" data-target="${pct}">${pct}%</div>
         <div class="bar"><div class="bar-fill" style="width:${pct}%"></div></div>
-        <div class="meta"><span>区间剩余</span><b>${formatRangeMs(remainsMs)}</b></div>
-        <div class="meta"><span>本周剩余</span><b>${weekly ?? '--'}%</b></div>
+        <div class="meta"><span>区间</span><b>${formatRangeMs(remainsMs)} · ${iStatus}</b></div>
+        <div class="meta"><span>本周</span><b>${weekly ?? '--'}% · ${wStatus}</b></div>
       `;
       root.appendChild(card);
     });
@@ -252,7 +255,7 @@
     const card = document.createElement('div');
     card.className = 'chart-card';
     card.dataset.model = name;
-    card.innerHTML = `<div class="chart-title">${name} · 区间剩余率 (${state.range})</div><div class="chart"></div>`;
+    card.innerHTML = `<div class="chart-title">${name} · 剩余率 (${state.range})</div><div class="chart"></div>`;
     root.appendChild(card);
     const el = card.querySelector('.chart');
     const c = echarts.init(el, null, { renderer: 'canvas' });
@@ -264,14 +267,23 @@
   function buildOption(name, points, from, to) {
     const accent = ACCENT[name] || '#00d4ff';
     const xs = points.map((p) => p.t);
-    const mins = points.map((p) => p.min);
-    const maxs = points.map((p) => p.max);
-    const avgs = points.map((p) => +p.avg.toFixed(2));
+    // Interval series (solid line + light band)
+    const iMin = points.map((p) => p.interval_min);
+    const iMax = points.map((p) => p.interval_max);
+    const iAvg = points.map((p) => +p.interval_avg.toFixed(2));
+    // Weekly series (dashed line, lighter)
+    const wAvg = points.map((p) => +p.weekly_avg.toFixed(2));
     return {
       animation: true,
       animationDuration: 600,
       animationEasing: 'cubicOut',
-      grid: { left: 48, right: 24, top: 24, bottom: 32 },
+      legend: {
+        data: ['区间', '本周'],
+        textStyle: { color: '#6b7390', fontSize: 11 },
+        top: 0, right: 8,
+        itemWidth: 14, itemHeight: 8,
+      },
+      grid: { left: 48, right: 24, top: 36, bottom: 32 },
       tooltip: {
         trigger: 'axis',
         backgroundColor: '#131836',
@@ -281,7 +293,8 @@
           const p = params[0];
           const i = p.dataIndex;
           return `${new Date(xs[i]).toLocaleString()}<br/>` +
-            `min ${mins[i].toFixed(1)}% · avg ${avgs[i]}% · max ${maxs[i].toFixed(1)}%`;
+            `<b style="color:${accent}">区间</b> min ${iMin[i].toFixed(1)}% · avg ${iAvg[i]}% · max ${iMax[i].toFixed(1)}%<br/>` +
+            `<b style="color:#a855f7">本周</b> avg ${wAvg[i]}%`;
         },
       },
       xAxis: {
@@ -299,22 +312,31 @@
       },
       series: [
         {
-          name: 'min-max',
+          name: '区间',
           type: 'line',
-          data: xs.map((t, i) => [t, mins[i], maxs[i]]),
+          data: xs.map((t, i) => [t, iMin[i], iMax[i]]),
           lineStyle: { opacity: 0 },
-          stack: 'minmax',
+          stack: 'iminmax',
           symbol: 'none',
           areaStyle: { color: accent, opacity: 0.08 },
           smooth: true,
         },
         {
-          name: 'avg',
+          name: '区间',
           type: 'line',
-          data: xs.map((t, i) => [t, avgs[i]]),
+          data: xs.map((t, i) => [t, iAvg[i]]),
           lineStyle: { color: accent, width: 2 },
           itemStyle: { color: accent },
           areaStyle: { color: accent, opacity: 0.18 },
+          symbol: 'none',
+          smooth: true,
+        },
+        {
+          name: '本周',
+          type: 'line',
+          data: xs.map((t, i) => [t, wAvg[i]]),
+          lineStyle: { color: '#a855f7', width: 1.5, type: 'dashed' },
+          itemStyle: { color: '#a855f7' },
           symbol: 'none',
           smooth: true,
         },

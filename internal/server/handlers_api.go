@@ -23,14 +23,40 @@ type Status struct {
 
 type ModelLatest struct {
 	ModelName            string `json:"model_name"`
-	IntervalRemainingPct *int   `json:"interval_remaining_pct"`
-	WeeklyRemainingPct   *int   `json:"weekly_remaining_pct"`
-	IntervalRemainsMs    *int64 `json:"interval_remains_ms"`
 	FetchedAt            int64  `json:"fetched_at"`
+
+	// Interval (5-min window)
+	IntervalRemainingPct *int   `json:"interval_remaining_pct"`
+	IntervalStatus       *int   `json:"interval_status"`
+	IntervalTotalCount   *int64 `json:"interval_total_count"`
+	IntervalUsageCount   *int64 `json:"interval_usage_count"`
+	IntervalEndAt        *int64 `json:"interval_end_at"`
+	IntervalRemainsMs    *int64 `json:"interval_remains_ms"`
+
+	// Weekly
+	WeeklyRemainingPct   *int   `json:"weekly_remaining_pct"`
+	WeeklyStatus         *int   `json:"weekly_status"`
+	WeeklyTotalCount     *int64 `json:"weekly_total_count"`
+	WeeklyUsageCount     *int64 `json:"weekly_usage_count"`
+	WeeklyEndAt          *int64 `json:"weekly_end_at"`
+	WeeklyRemainsMs      *int64 `json:"weekly_remains_ms"`
 }
 
+// BucketPoint is one time-bucketed aggregate. The Interval and Weekly
+// series share the same time axis (T) but have independent min/max/avg.
+// Legacy fields (Min/Max/Avg) are kept as JSON aliases of the Interval
+// series for backward compatibility with older clients.
 type BucketPoint struct {
-	T   int64   `json:"t"`
+	T int64 `json:"t"`
+	// Interval series
+	IntervalMin float64 `json:"interval_min"`
+	IntervalMax float64 `json:"interval_max"`
+	IntervalAvg float64 `json:"interval_avg"`
+	// Weekly series
+	WeeklyMin float64 `json:"weekly_min"`
+	WeeklyMax float64 `json:"weekly_max"`
+	WeeklyAvg float64 `json:"weekly_avg"`
+	// Legacy aliases (mirror interval series)
 	Min float64 `json:"min"`
 	Max float64 `json:"max"`
 	Avg float64 `json:"avg"`
@@ -104,10 +130,19 @@ func (s *Server) handleModels(c *gin.Context) {
 	for _, r := range rows {
 		out = append(out, ModelLatest{
 			ModelName:            r.ModelName,
-			IntervalRemainingPct: r.IntervalRemainingPct,
-			WeeklyRemainingPct:   r.WeeklyRemainingPct,
-			IntervalRemainsMs:    r.IntervalRemainsMs,
 			FetchedAt:            r.FetchedAt,
+			IntervalRemainingPct: r.IntervalRemainingPct,
+			IntervalStatus:       r.IntervalStatus,
+			IntervalTotalCount:   r.IntervalTotalCount,
+			IntervalUsageCount:   r.IntervalUsageCount,
+			IntervalEndAt:        r.IntervalEndAt,
+			IntervalRemainsMs:    r.IntervalRemainsMs,
+			WeeklyRemainingPct:   r.WeeklyRemainingPct,
+			WeeklyStatus:         r.WeeklyStatus,
+			WeeklyTotalCount:     r.WeeklyTotalCount,
+			WeeklyUsageCount:     r.WeeklyUsageCount,
+			WeeklyEndAt:          r.WeeklyEndAt,
+			WeeklyRemainsMs:      r.WeeklyRemainsMs,
 		})
 	}
 	c.JSON(http.StatusOK, out)
@@ -191,7 +226,12 @@ func (s *Server) handleHistory(c *gin.Context) {
 	}
 	pts := make([]BucketPoint, 0, len(rows))
 	for _, b := range rows {
-		pts = append(pts, BucketPoint{T: b.T, Min: b.Min, Max: b.Max, Avg: b.Avg})
+		pts = append(pts, BucketPoint{
+			T:           b.T,
+			IntervalMin: b.IntervalMin, IntervalMax: b.IntervalMax, IntervalAvg: b.IntervalAvg,
+			WeeklyMin:   b.WeeklyMin,   WeeklyMax:   b.WeeklyMax,   WeeklyAvg:   b.WeeklyAvg,
+			Min:         b.IntervalMin, Max:         b.IntervalMax, Avg:         b.IntervalAvg, // legacy aliases
+		})
 	}
 	c.JSON(http.StatusOK, History{
 		Model:    modelName,

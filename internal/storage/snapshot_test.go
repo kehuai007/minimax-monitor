@@ -61,15 +61,15 @@ func TestInsert_AndLatest(t *testing.T) {
 func TestHistory_Bucketed(t *testing.T) {
 	db := openTest(t)
 	ctx := context.Background()
-	// t0 aligned to 30s bucket grid; 9 rows over 90s with values 10,20,...,90
+	// t0 aligned to 30s bucket grid; 9 rows over 90s.
+	// interval values 10,20,...,90 (decreasing); weekly values 90,80,...,10 (decreasing).
 	t0 := time.UnixMilli(1700000010000)
-	// buckets: [t0, t0+30s): 10,20,30 → min=10 avg=20 max=30
-	//          [t0+30s, t0+60s): 40,50,60 → min=40 avg=50 max=60
-	//          [t0+60s, t0+90s): 70,80,90 → min=70 avg=80 max=90
 	for i := 0; i < 9; i++ {
 		resp := &model.APIResponse{
 			ModelRemains: []model.ModelRemains{{
-				ModelName: "general", CurrentIntervalRemainingPct: 10 + i*10,
+				ModelName:                "general",
+				CurrentIntervalRemainingPct: 10 + i*10,
+				CurrentWeeklyRemainingPct:   90 - i*10,
 			}},
 			BaseResp: model.BaseResp{StatusCode: 0, StatusMsg: "ok"},
 		}
@@ -87,14 +87,25 @@ func TestHistory_Bucketed(t *testing.T) {
 	if len(buckets) != 3 {
 		t.Fatalf("bucket count = %d, want 3", len(buckets))
 	}
-	if buckets[0].Min != 10 || buckets[0].Max != 30 || buckets[0].Avg != 20 {
-		t.Errorf("bucket 0 = %+v", buckets[0])
+	// Interval series
+	if buckets[0].IntervalMin != 10 || buckets[0].IntervalMax != 30 || buckets[0].IntervalAvg != 20 {
+		t.Errorf("bucket 0 interval = %+v", buckets[0])
 	}
-	if buckets[1].Min != 40 || buckets[1].Max != 60 || buckets[1].Avg != 50 {
-		t.Errorf("bucket 1 = %+v", buckets[1])
+	if buckets[1].IntervalMin != 40 || buckets[1].IntervalMax != 60 || buckets[1].IntervalAvg != 50 {
+		t.Errorf("bucket 1 interval = %+v", buckets[1])
 	}
-	if buckets[2].Min != 70 || buckets[2].Max != 90 || buckets[2].Avg != 80 {
-		t.Errorf("bucket 2 = %+v", buckets[2])
+	if buckets[2].IntervalMin != 70 || buckets[2].IntervalMax != 90 || buckets[2].IntervalAvg != 80 {
+		t.Errorf("bucket 2 interval = %+v", buckets[2])
+	}
+	// Weekly series (reverse of interval)
+	if buckets[0].WeeklyMin != 70 || buckets[0].WeeklyMax != 90 || buckets[0].WeeklyAvg != 80 {
+		t.Errorf("bucket 0 weekly = %+v", buckets[0])
+	}
+	if buckets[1].WeeklyMin != 40 || buckets[1].WeeklyMax != 60 || buckets[1].WeeklyAvg != 50 {
+		t.Errorf("bucket 1 weekly = %+v", buckets[1])
+	}
+	if buckets[2].WeeklyMin != 10 || buckets[2].WeeklyMax != 30 || buckets[2].WeeklyAvg != 20 {
+		t.Errorf("bucket 2 weekly = %+v", buckets[2])
 	}
 }
 
