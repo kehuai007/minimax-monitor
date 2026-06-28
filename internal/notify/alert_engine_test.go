@@ -159,14 +159,24 @@ func TestAlertEngine_IntervalReset_ClearsState(t *testing.T) {
 	if got := len(fn.Calls()); got != 2 {
 		t.Fatalf("setup: calls = %d, want 2", got)
 	}
-	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 100)})
+	// Seed a prev snapshot with remaining=15 (consumed=85), end_at = T1.
+	// This anchors the next snapshot as a reset transition (not just a
+	// low-consumption tick).
+	seedSnapshot(t, db, snapWithEnd("general", 15, 5_000_000))
+	_ = eng.Evaluate(ctx, []storage.Snapshot{snapWithEnd("general", 100, 6_000_000)})
 	st, _ := db.GetAlertState(ctx, "general")
 	if len(st.NotifiedPcts) != 0 {
 		t.Errorf("state after reset = %v, want empty", st.NotifiedPcts)
 	}
+	if fn.Calls()[2].Kind != KindReset {
+		t.Errorf("reset tick Kind = %q, want %q", fn.Calls()[2].Kind, KindReset)
+	}
 	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 20)})
-	if got := len(fn.Calls()); got != 3 {
-		t.Errorf("calls after reset+redrop = %d, want 3", got)
+	if got := len(fn.Calls()); got != 4 {
+		t.Errorf("calls after reset+redrop = %d, want 4", got)
+	}
+	if fn.Calls()[3].Kind != KindAlert {
+		t.Errorf("refire Kind = %q, want %q", fn.Calls()[3].Kind, KindAlert)
 	}
 }
 
@@ -216,5 +226,130 @@ func TestAlertEngine_NilRemaining_Skipped(t *testing.T) {
 	}
 	if got := len(fn.Calls()); got != 0 {
 		t.Errorf("calls = %d, want 0 for nil remaining", got)
+	}
+}
+
+// snapWithEnd builds a snapshot with explicit interval_end_at so reset
+// detection can be tested. endAtMs is in unix-ms.
+func snapWithEnd(model string, remaining int, endAtMs int64) storage.Snapshot {
+	pct := remaining
+	return storage.Snapshot{
+		ModelName:            model,
+		IntervalRemainingPct: &pct,
+		IntervalEndAt:        &endAtMs,
+		FetchedAt:            time.Now().UnixMilli(),
+	}
+}
+
+func seedSnapshot(t *testing.T, db *storage.DB, s storage.Snapshot) {
+	t.Helper()
+	// Pin FetchedAt to a time strictly earlier than any subsequent
+	// snapWithEnd call. Windows' UnixMilli() can return the same value
+	// for two calls in the same millisecond, which would make
+	// PrevSnapshot return empty and break reset-detection tests.
+	s.FetchedAt = time.Now().UnixMilli() - 1000
+	if err := db.InsertOne(context.Background(), s); err != nil {
+		t.Fatalf("seedSnapshot: %v", err)
+	}
+}
+
+func TestAlertEngine_ResetTransition_FiresReset(t *testing.T) {
+	db := openTestDB(t)
+	fn := &fakeNotifier{}
+	eng := NewAlertEngine(db, fn, func() storage.AlertConfig { return storage.AlertConfig{Enabled: true, URL: "x", Threshold: 80} })
+	ctx := context.Background()
+	// Seed a previous snapshot: consumed=87 (remaining=13), end_at = T1
+	seedSnapshot(t, db, snapWithEnd("general", 13, 1_000_000))
+	// Current snapshot: consumed=0 (remaining=100), end_at = T2 > T1 (window rolled)
+	if err := eng.Evaluate(ctx, []storage.Snapshot{snapWithEnd("general", 100, 2_000_000)}); err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if got := len(fn.Calls()); got != 1 {
+		t.Fatalf("calls = %d, want 1 (reset card)", got)
+	}
+	c := fn.Calls()[0]
+	if c.Kind != KindReset {
+		t.Errorf("Kind = %q, want %q", c.Kind, KindReset)
+	}
+	if c.Severity != SevInfo {
+		t.Errorf("Severity = %v, want SevInfo", c.Severity)
+	}
+	if c.Used != 0 || c.Remaining != 100 {
+		t.Errorf("Used=%d Remaining=%d, want 0/100", c.Used, c.Remaining)
+	}
+	if c.WindowMaxConsumed == nil || *c.WindowMaxConsumed != 87 {
+		t.Errorf("WindowMaxConsumed = %v, want 87", c.WindowMaxConsumed)
+	}
+	// State must have been cleared so the next threshold crossing fires fresh
+	st, _ := db.GetAlertState(ctx, "general")
+	if len(st.NotifiedPcts) != 0 {
+		t.Errorf("state after reset = %v, want empty", st.NotifiedPcts)
+	}
+}
+
+func TestAlertEngine_ResetTransition_NoUsage_DoesNotFire(t *testing.T) {
+	db := openTestDB(t)
+	fn := &fakeNotifier{}
+	eng := NewAlertEngine(db, fn, func() storage.AlertConfig { return storage.AlertConfig{Enabled: true, URL: "x", Threshold: 80} })
+	ctx := context.Background()
+	// prev: never used (remaining=100), end_at = T1
+	seedSnapshot(t, db, snapWithEnd("general", 100, 1_000_000))
+	// cur: still never used, end_at = T2 > T1
+	if err := eng.Evaluate(ctx, []storage.Snapshot{snapWithEnd("general", 100, 2_000_000)}); err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if got := len(fn.Calls()); got != 0 {
+		t.Errorf("calls = %d, want 0 (no usage → no reset notif)", got)
+	}
+}
+
+func TestAlertEngine_ResetTransition_SameWindow_DoesNotFire(t *testing.T) {
+	db := openTestDB(t)
+	fn := &fakeNotifier{}
+	eng := NewAlertEngine(db, fn, func() storage.AlertConfig { return storage.AlertConfig{Enabled: true, URL: "x", Threshold: 80} })
+	ctx := context.Background()
+	// prev: consumed=87 (remaining=13), end_at = T1
+	seedSnapshot(t, db, snapWithEnd("general", 13, 1_000_000))
+	// cur: still consumed=87 (remaining=13), end_at = T1 (unchanged)
+	if err := eng.Evaluate(ctx, []storage.Snapshot{snapWithEnd("general", 13, 1_000_000)}); err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	// No RESET card should fire when end_at hasn't advanced.
+	// (The threshold path may still fire — dedup is state-based, not
+	// prev-based — but the reset-transition guard must not produce a card.)
+	for i, c := range fn.Calls() {
+		if c.Kind == KindReset {
+			t.Errorf("call[%d].Kind = %q, want no reset card (same window)", i, c.Kind)
+		}
+	}
+}
+
+func TestAlertEngine_ResetAfterThreshold_ClearsThenRefires(t *testing.T) {
+	db := openTestDB(t)
+	fn := &fakeNotifier{}
+	eng := NewAlertEngine(db, fn, func() storage.AlertConfig { return storage.AlertConfig{Enabled: true, URL: "x", Threshold: 80} })
+	ctx := context.Background()
+	// Tick 1: consumed=80, no prev seeded → normal alert fires
+	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 20)})
+	if got := len(fn.Calls()); got != 1 {
+		t.Fatalf("setup: calls = %d, want 1", got)
+	}
+	// Now seed a prev snapshot with remaining=15 (consumed=85)
+	seedSnapshot(t, db, snapWithEnd("general", 15, 5_000_000))
+	// Tick 2: reset transition (cur remaining=100, end_at advanced) → reset card fires
+	_ = eng.Evaluate(ctx, []storage.Snapshot{snapWithEnd("general", 100, 6_000_000)})
+	if got := len(fn.Calls()); got != 2 {
+		t.Fatalf("after reset: calls = %d, want 2", got)
+	}
+	if fn.Calls()[1].Kind != KindReset {
+		t.Errorf("call[1].Kind = %q, want %q", fn.Calls()[1].Kind, KindReset)
+	}
+	// Tick 3: consumed=80 again (remaining=20) → fresh alert fires (state was cleared)
+	_ = eng.Evaluate(ctx, []storage.Snapshot{snap("general", 20)})
+	if got := len(fn.Calls()); got != 3 {
+		t.Errorf("after refire: calls = %d, want 3", got)
+	}
+	if fn.Calls()[2].Kind != KindAlert {
+		t.Errorf("call[2].Kind = %q, want %q", fn.Calls()[2].Kind, KindAlert)
 	}
 }

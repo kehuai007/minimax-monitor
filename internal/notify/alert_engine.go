@@ -29,6 +29,25 @@ func NewAlertEngine(db *storage.DB, notifier Notifier, cfgFn func() storage.Aler
 	}
 }
 
+// isResetTransition reports whether `cur` represents the moment the
+// 5-minute interval window rolled over after real usage. Conditions:
+//   - previous snapshot had real usage (consumed > 0, i.e. remaining < 100)
+//   - current snapshot is fresh (consumed == 0, i.e. remaining == 100)
+//   - interval_end_at strictly advanced (new window boundary)
+// All three must hold; missing IntervalRemainingPct or IntervalEndAt on
+// either side disables detection.
+func isResetTransition(prev, cur storage.Snapshot) bool {
+	if prev.IntervalRemainingPct == nil || cur.IntervalRemainingPct == nil {
+		return false
+	}
+	if prev.IntervalEndAt == nil || cur.IntervalEndAt == nil {
+		return false
+	}
+	return *prev.IntervalRemainingPct < 100 &&
+		*cur.IntervalRemainingPct == 100 &&
+		*cur.IntervalEndAt > *prev.IntervalEndAt
+}
+
 // Evaluate inspects each snapshot, decides whether to notify, and dispatches
 // through the configured Notifier. Already-notified percents are skipped.
 func (e *AlertEngine) Evaluate(ctx context.Context, snaps []storage.Snapshot) error {
@@ -43,18 +62,34 @@ func (e *AlertEngine) Evaluate(ctx context.Context, snaps []storage.Snapshot) er
 			continue
 		}
 		remaining := *s.IntervalRemainingPct
+		consumed := 100 - remaining
 
-		if remaining >= 95 {
-			if err := e.db.ClearAlertState(ctx, s.ModelName); err != nil {
-				slog.Warn("alert: clear state failed", "model", s.ModelName, "err", err)
+		// 1) Reset transition detection — runs before threshold check so
+		// a fresh window with consumed=0 doesn't accidentally trigger.
+		prev, _ := e.db.PrevSnapshot(ctx, s.ModelName, s.FetchedAt)
+		if isResetTransition(prev, s) {
+			trend := e.recentTrend(ctx, s.ModelName, now)
+			st, _ := e.db.GetAlertState(ctx, s.ModelName)
+			n := buildResetNotification(s, prev, st.NotifiedPcts, cfg.Threshold, trend, now)
+			if err := e.notifier.Send(ctx, cfg.URL, n); err != nil {
+				slog.Warn("alert reset send failed",
+					"model", s.ModelName, "err", err)
+				// do NOT clear state on failure — next tick may retry
+			} else {
+				if err := e.db.ClearAlertState(ctx, s.ModelName); err != nil {
+					slog.Warn("alert: clear state after reset failed",
+						"model", s.ModelName, "err", err)
+				}
 			}
 			continue
 		}
-		consumed := 100 - remaining
 
+		// 2) Consumption threshold check
 		if consumed < cfg.Threshold {
 			continue
 		}
+
+		// 3) Dedup and send (unchanged from Task 3)
 		st, err := e.db.GetAlertState(ctx, s.ModelName)
 		if err != nil {
 			slog.Warn("alert: get state failed", "model", s.ModelName, "err", err)
