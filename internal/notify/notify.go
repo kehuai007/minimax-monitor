@@ -7,6 +7,14 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"minimax-monitor/internal/storage"
+)
+
+// Notification kinds — empty string is the default alert card.
+const (
+	KindAlert = ""
+	KindReset = "reset"
 )
 
 type Severity int
@@ -76,6 +84,7 @@ type TrendPoint struct {
 
 type Notification struct {
 	IsTest                bool         `json:"is_test"`
+	Kind                  string       `json:"kind,omitempty"`
 	Model                 string       `json:"model"`
 	Severity              Severity     `json:"severity"`
 	Remaining             int          `json:"remaining"`
@@ -83,6 +92,7 @@ type Notification struct {
 	WeeklyRemainingPct    *int         `json:"weekly_remaining_pct,omitempty"`
 	Threshold             int          `json:"threshold"`
 	PrevNotifiedPct       *int         `json:"prev_notified_pct,omitempty"`
+	WindowMaxConsumed     *int         `json:"window_max_consumed,omitempty"`
 	IntervalResetAt       *int64       `json:"interval_reset_at,omitempty"`
 	IntervalResetRemainMs *int64       `json:"interval_reset_remain_ms,omitempty"`
 	WeeklyResetAt         *int64       `json:"weekly_reset_at,omitempty"`
@@ -127,4 +137,55 @@ func FormatResetRemain(deltaMs int64) string {
 	days := int(d / (24 * time.Hour))
 	hours := int(d.Hours()) - days*24
 	return fmt.Sprintf("%d天%d时后", days, hours)
+}
+
+// buildResetNotification composes the reset-window-rolled-over card
+// payload. notifiedPcts are the remaining-percentage values at which
+// alerts fired during the closing window; both those and prev.
+// IntervalRemainingPct are scanned to compute the highest consumption
+// reached before reset.
+func buildResetNotification(s storage.Snapshot, prev storage.Snapshot,
+	notifiedPcts []int, threshold int, trend []TrendPoint, now time.Time) Notification {
+	n := Notification{
+		Kind:        KindReset,
+		Model:       s.ModelName,
+		Severity:    SevInfo,
+		Remaining:   100,
+		Used:        0,
+		Threshold:   threshold,
+		RecentTrend: trend,
+		FetchedAt:   now.UnixMilli(),
+	}
+	maxConsumed := 0
+	if prev.IntervalRemainingPct != nil {
+		if v := 100 - *prev.IntervalRemainingPct; v > maxConsumed {
+			maxConsumed = v
+		}
+	}
+	for _, r := range notifiedPcts {
+		if v := 100 - r; v > maxConsumed {
+			maxConsumed = v
+		}
+	}
+	if maxConsumed > 0 {
+		v := maxConsumed
+		n.WindowMaxConsumed = &v
+	}
+	if s.IntervalEndAt != nil {
+		at := *s.IntervalEndAt
+		n.IntervalResetAt = &at
+		delta := at - now.UnixMilli()
+		n.IntervalResetRemainMs = &delta
+	}
+	if s.WeeklyEndAt != nil {
+		at := *s.WeeklyEndAt
+		n.WeeklyResetAt = &at
+		delta := at - now.UnixMilli()
+		n.WeeklyResetRemainMs = &delta
+	}
+	if s.WeeklyRemainingPct != nil {
+		v := *s.WeeklyRemainingPct
+		n.WeeklyRemainingPct = &v
+	}
+	return n
 }
