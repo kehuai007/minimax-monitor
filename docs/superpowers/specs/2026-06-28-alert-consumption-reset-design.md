@@ -218,9 +218,29 @@ func (e *AlertEngine) Evaluate(ctx context.Context, snaps []storage.Snapshot) er
 
 ### 4.3 buildResetNotification
 
+Caller flow inside `Evaluate` reset branch (concrete):
+
+```go
+prev, _ := e.db.PrevSnapshot(ctx, s.ModelName, s.FetchedAt)
+if isResetTransition(prev, s) {
+    trend := e.recentTrend(ctx, s.ModelName, now)
+    st, _ := e.db.GetAlertState(ctx, s.ModelName)
+    n := buildResetNotification(s, prev, st.NotifiedPcts, cfg.Threshold, trend, now)
+    if err := e.notifier.Send(ctx, cfg.URL, n); err != nil {
+        slog.Warn("alert reset send failed", "model", s.ModelName, "err", err)
+    } else {
+        _ = e.db.ClearAlertState(ctx, s.ModelName)
+    }
+    continue
+}
+```
+
+The helper signature accepts the already-fetched `notifiedPcts` so it can
+compute `WindowMaxConsumed` precisely:
+
 ```go
 func buildResetNotification(s storage.Snapshot, prev storage.Snapshot,
-    threshold int, trend []TrendPoint, now time.Time) Notification {
+    notifiedPcts []int, threshold int, trend []TrendPoint, now time.Time) Notification {
     n := Notification{
         Kind:      KindReset,
         Model:     s.ModelName,
@@ -228,18 +248,22 @@ func buildResetNotification(s storage.Snapshot, prev storage.Snapshot,
         Remaining: 100,
         Used:      0,
         Threshold: threshold,
-        Trend:     trend,
-        FetchedAt: now.UnixMilli(),
+        RecentTrend: trend,
+        FetchedAt:   now.UnixMilli(),
     }
-    // WindowMaxConsumed = 100 - min(remaining in notified_pcts ∪ prev.remaining)
-    var maxConsumed int
+    // WindowMaxConsumed = max( 100 - *prev.IntervalRemainingPct,
+    //                          100 - min(notifiedPcts) for each r in notifiedPcts )
+    maxConsumed := 0
     if prev.IntervalRemainingPct != nil {
-        maxConsumed = 100 - *prev.IntervalRemainingPct
+        if v := 100 - *prev.IntervalRemainingPct; v > maxConsumed {
+            maxConsumed = v
+        }
     }
-    // (notified_pcts is not available here without an extra fetch; we use prev
-    //  snapshot's remaining as a lower-bound approximation. To be precise we
-    //  pull notified_pcts via db.GetAlertState before calling this helper — see
-    //  the implementation plan for the exact call sequence.)
+    for _, r := range notifiedPcts {
+        if v := 100 - r; v > maxConsumed {
+            maxConsumed = v
+        }
+    }
     if maxConsumed > 0 {
         v := maxConsumed
         n.WindowMaxConsumed = &v
@@ -264,15 +288,10 @@ func buildResetNotification(s storage.Snapshot, prev storage.Snapshot,
 }
 ```
 
-To compute `WindowMaxConsumed` accurately, the caller must first call
-`db.GetAlertState` and inspect `notified_pcts` (which are remaining
-values at which alerts fired this window); the maximum consumption in
-the window is the larger of:
-- `100 - *prev.IntervalRemainingPct` (consumed at the moment before reset)
-- `100 - min(notified_pcts)` (consumed at each alert)
-
-We pass the resulting max into `buildResetNotification`. The
-implementation plan will spell out the exact ordering.
+If `notifiedPcts` is empty and `prev.IntervalRemainingPct == nil`,
+`WindowMaxConsumed` is omitted and the card shows `—` for that field.
+This case is rare (means we detected a reset without ever seeing the
+previous snapshot's remaining value), but the helper must not panic.
 
 ---
 
