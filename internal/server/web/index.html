@@ -86,9 +86,9 @@
             <small class="muted">支持 ?secret=xxx 自动签名</small>
           </div>
           <div class="form-row">
-            <label for="alertThreshold">阈值 (剩余%)</label>
+            <label for="alertThreshold">阈值 (消耗%)</label>
             <input id="alertThreshold" type="number" min="1" max="100" value="80" />
-            <small class="muted">剩余≤该值告警;每下降1%再告警一次</small>
+            <small class="muted">消耗达到该值时告警;每再消耗 1% 再告警一次</small>
           </div>
           <div class="form-error hidden" id="alertError"></div>
           <div class="form-actions">
