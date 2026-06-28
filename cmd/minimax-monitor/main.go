@@ -15,6 +15,7 @@ import (
 	"minimax-monitor/internal/apiclient"
 	"minimax-monitor/internal/config"
 	"minimax-monitor/internal/keyring"
+	"minimax-monitor/internal/notify"
 	"minimax-monitor/internal/scheduler"
 	"minimax-monitor/internal/server"
 	"minimax-monitor/internal/storage"
@@ -57,6 +58,21 @@ func main() {
 		return err
 	}
 	srv.OnKeyChange = func() { /* scheduler is already running and re-checks keyFn each tick */ }
+
+	// Wire Feishu notifier and alert engine.
+	feishu := notify.NewFeishuClient()
+	alertCfgFn := func() storage.AlertConfig {
+		cfg, err := db.GetAlertConfig(context.Background())
+		if err != nil {
+			slog.Warn("get alert config", "err", err)
+		}
+		return cfg
+	}
+	engine := notify.NewAlertEngine(db, feishu, alertCfgFn)
+	sched.SetAlerter(engine)
+
+	srv.AlertConfig = alertCfgFn
+	srv.AlertTest = engine.SendTest
 
 	rootCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
