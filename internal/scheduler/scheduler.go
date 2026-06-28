@@ -24,10 +24,17 @@ type Broadcaster interface {
 	Broadcast(snap []storage.Snapshot)
 }
 
+// AlertEngine evaluates the latest snapshot set against configured alert
+// rules and dispatches notifications.
+type AlertEngine interface {
+	Evaluate(ctx context.Context, snaps []storage.Snapshot) error
+}
+
 type Scheduler struct {
 	f              Fetcher
 	ins            Inserter
 	b              Broadcaster
+	alerter        AlertEngine
 	keyFn          func() (string, error)
 	interval       time.Duration
 	pruneEvery     time.Duration
@@ -72,8 +79,24 @@ func (sc *Scheduler) RunOnce(ctx context.Context) error {
 		slog.Error("insert failed", "err", err)
 		return err
 	}
-	if snaps, err := sc.ins.Latest(ctx); err == nil && sc.b != nil {
+	snaps, err := sc.ins.Latest(ctx)
+	if err != nil {
+		slog.Warn("latest snapshots", "err", err)
+	}
+	if snaps != nil && sc.b != nil {
 		sc.b.Broadcast(snaps)
+	}
+	sc.mu.Lock()
+	alerter := sc.alerter
+	sc.mu.Unlock()
+	if alerter != nil && snaps != nil {
+		go func(sn []storage.Snapshot) {
+			actx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := alerter.Evaluate(actx, sn); err != nil {
+				slog.Warn("alert evaluate", "err", err)
+			}
+		}(snaps)
 	}
 	return nil
 }
@@ -116,4 +139,11 @@ func (sc *Scheduler) Stats() (lastFetchAt time.Time, consecErrors int, lastErr s
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	return sc.lastFetchAt, sc.consecErrors, sc.lastErrMsg
+}
+
+// SetAlerter installs an alert engine. Pass nil to disable.
+func (sc *Scheduler) SetAlerter(a AlertEngine) {
+	sc.mu.Lock()
+	sc.alerter = a
+	sc.mu.Unlock()
 }
