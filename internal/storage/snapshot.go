@@ -10,22 +10,22 @@ import (
 )
 
 type Snapshot struct {
-	ID                    int64
-	FetchedAt             int64
-	ModelName             string
-	IntervalRemainingPct  *int
-	IntervalStatus        *int
-	IntervalTotalCount    *int64
-	IntervalUsageCount    *int64
-	IntervalEndAt         *int64
-	IntervalRemainsMs     *int64
-	WeeklyRemainingPct    *int
-	WeeklyStatus          *int
-	WeeklyTotalCount      *int64
-	WeeklyUsageCount      *int64
-	WeeklyEndAt           *int64
-	WeeklyRemainsMs       *int64
-	RawJSON               string
+	ID                    int64  `json:"id"`
+	FetchedAt             int64  `json:"fetched_at"`
+	ModelName             string `json:"model_name"`
+	IntervalRemainingPct  *int   `json:"interval_remaining_pct"`
+	IntervalStatus        *int   `json:"interval_status"`
+	IntervalTotalCount    *int64 `json:"interval_total_count"`
+	IntervalUsageCount    *int64 `json:"interval_usage_count"`
+	IntervalEndAt         *int64 `json:"interval_end_at"`
+	IntervalRemainsMs     *int64 `json:"interval_remains_ms"`
+	WeeklyRemainingPct    *int   `json:"weekly_remaining_pct"`
+	WeeklyStatus          *int   `json:"weekly_status"`
+	WeeklyTotalCount      *int64 `json:"weekly_total_count"`
+	WeeklyUsageCount      *int64 `json:"weekly_usage_count"`
+	WeeklyEndAt           *int64 `json:"weekly_end_at"`
+	WeeklyRemainsMs       *int64 `json:"weekly_remains_ms"`
+	RawJSON               string `json:"raw_json"`
 }
 
 type Bucket struct {

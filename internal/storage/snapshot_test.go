@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
@@ -120,5 +121,40 @@ func TestPrune(t *testing.T) {
 	rows, _ := db.Latest(ctx)
 	if len(rows) != 1 || *rows[0].IntervalRemainingPct != 2 {
 		t.Errorf("after prune = %+v", rows)
+	}
+}
+
+// TestSnapshot_JSONTags guards the WS broadcast contract: app.js reads
+// snake_case field names. If anyone removes/renames a json tag, this test
+// fails before the UI silently goes blank.
+func TestSnapshot_JSONTags(t *testing.T) {
+	pct := 87
+	remaining := int64(1234567)
+	s := Snapshot{
+		ModelName:            "general",
+		FetchedAt:            1700000000000,
+		IntervalRemainingPct: &pct,
+		IntervalRemainsMs:    &remaining,
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	required := []string{
+		"model_name", "fetched_at",
+		"interval_remaining_pct", "interval_remains_ms",
+		"weekly_remaining_pct", "weekly_remains_ms",
+	}
+	for _, k := range required {
+		if _, ok := got[k]; !ok {
+			t.Errorf("Snapshot JSON missing required field %q; got %s", k, string(b))
+		}
+	}
+	if got["model_name"] != "general" {
+		t.Errorf("model_name = %v, want general", got["model_name"])
 	}
 }
