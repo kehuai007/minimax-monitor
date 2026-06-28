@@ -40,6 +40,20 @@ Default bind: `0.0.0.0:13337` (all interfaces).
 
 The listen address is **CLI-only** via `-p <port>`.
 
+## Alerting (Feishu / Lark)
+
+The dashboard can post interactive-card notifications to a Feishu (or Lark)
+custom bot when the configured interval-remaining threshold is crossed.
+
+1. Click ⚙ in the header → expand "告警通知".
+2. Paste your webhook URL (with optional `?secret=...` — signing is auto-detected).
+3. Set the threshold (default 80). Alerts fire when remaining % drops at or
+   below this value, then once more for every additional 1% drop until the
+   5-minute window resets.
+4. Click "保存", then "发送测试" to verify delivery.
+
+Disable to clear all dedup state — the next enable starts a fresh window.
+
 ## Cross-compile (Windows → all)
 
 ```bat
