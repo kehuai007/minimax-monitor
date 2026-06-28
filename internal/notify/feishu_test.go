@@ -186,3 +186,60 @@ func TestBuildCardPayload_AlertCard_EmphasizesUsed(t *testing.T) {
 		t.Errorf("expected '配额告警' title; body=%s", s)
 	}
 }
+
+func TestBuildCardPayload_ResetCard_TitleAndFields(t *testing.T) {
+	maxConsumed := intPtr(87)
+	endAt := int64Ptr(time.Date(2026, 6, 28, 18, 45, 0, 0, time.UTC).UnixMilli())
+	n := Notification{
+		Kind:              KindReset,
+		Model:             "general",
+		Severity:          SevInfo,
+		Remaining:         100,
+		Used:              0,
+		Threshold:         80,
+		WindowMaxConsumed: maxConsumed,
+		IntervalResetAt:   endAt,
+		FetchedAt:         time.Date(2026, 6, 28, 18, 45, 0, 0, time.UTC).UnixMilli(),
+	}
+	card := buildCardPayload(n)
+	body, _ := json.Marshal(card)
+	s := string(body)
+	if !strings.Contains(s, "🔄 配额重置") {
+		t.Errorf("expected '🔄 配额重置' title; body=%s", s)
+	}
+	if !strings.Contains(s, `"template":"blue"`) {
+		t.Errorf("expected template=blue; body=%s", s)
+	}
+	if !strings.Contains(s, "本周期最高消耗") {
+		t.Errorf("expected '本周期最高消耗' field; body=%s", s)
+	}
+	if !strings.Contains(s, "87%") {
+		t.Errorf("expected 87%% in window-max field; body=%s", s)
+	}
+	if !strings.Contains(s, "≥ 80%") {
+		t.Errorf("expected '≥ 80%%' threshold copy in note; body=%s", s)
+	}
+}
+
+func TestBuildCardPayload_ResetCard_NoWindowMax_ShowsDash(t *testing.T) {
+	endAt := int64Ptr(time.Now().UnixMilli())
+	n := Notification{
+		Kind:            KindReset,
+		Model:           "general",
+		Severity:        SevInfo,
+		Remaining:       100,
+		Used:            0,
+		Threshold:       80,
+		IntervalResetAt: endAt,
+		FetchedAt:       time.Now().UnixMilli(),
+	}
+	card := buildCardPayload(n)
+	body, _ := json.Marshal(card)
+	s := string(body)
+	if !strings.Contains(s, "本周期最高消耗") {
+		t.Errorf("expected '本周期最高消耗' field present even when nil; body=%s", s)
+	}
+	if !strings.Contains(s, "—") {
+		t.Errorf("expected '—' placeholder when WindowMaxConsumed is nil; body=%s", s)
+	}
+}

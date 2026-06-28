@@ -249,9 +249,83 @@ func buildTrendNoteText(n Notification) string {
 	return "最近10分钟趋势(剩余%): " + strings.Join(parts, " → ")
 }
 
-// buildResetCard is a placeholder; the real reset card layout is
-// implemented in Task 6. For now it returns the standard alert card so
-// dispatch in buildCardPayload does not panic during the interim.
+// buildResetCard produces the interval-window-rolled-over card.
 func buildResetCard(n Notification) map[string]any {
-	return buildAlertCard(n) // stub until Task 6
+	title := "🔄 配额重置 · " + n.Model
+
+	fields := []map[string]any{
+		{"text": map[string]any{"tag": "lark_md", "content": "**模型**\n`" + n.Model + "`"}},
+		{"text": map[string]any{"tag": "lark_md", "content": "**触发时间**\n" + time.UnixMilli(n.FetchedAt).Format("2006-01-02 15:04:05")}},
+		{"text": map[string]any{"tag": "lark_md", "content": fmt.Sprintf("**消耗**\n%d%%", n.Used)}},
+		{"text": map[string]any{"tag": "lark_md", "content": fmt.Sprintf("**剩余**\n%d%%", n.Remaining)}},
+	}
+	if n.WindowMaxConsumed != nil {
+		fields = append(fields, map[string]any{
+			"text": map[string]any{"tag": "lark_md", "content": fmt.Sprintf("**本周期最高消耗**\n%d%%", *n.WindowMaxConsumed)},
+		})
+	} else {
+		fields = append(fields, map[string]any{
+			"text": map[string]any{"tag": "lark_md", "content": "**本周期最高消耗**\n—"},
+		})
+	}
+	if n.IntervalResetAt != nil {
+		ts := FormatResetTime(*n.IntervalResetAt)
+		var remain string
+		if n.IntervalResetRemainMs != nil {
+			remain = " (" + FormatResetRemain(*n.IntervalResetRemainMs) + ")"
+		}
+		fields = append(fields, map[string]any{
+			"text": map[string]any{"tag": "lark_md", "content": "**区间重置**\n" + ts + remain},
+		})
+	} else {
+		fields = append(fields, map[string]any{
+			"text": map[string]any{"tag": "lark_md", "content": "**区间重置**\n—"},
+		})
+	}
+	if n.WeeklyResetAt != nil {
+		ts := FormatResetTime(*n.WeeklyResetAt)
+		var remain string
+		if n.WeeklyResetRemainMs != nil {
+			remain = " (" + FormatResetRemain(*n.WeeklyResetRemainMs) + ")"
+		}
+		fields = append(fields, map[string]any{
+			"text": map[string]any{"tag": "lark_md", "content": "**周重置**\n" + ts + remain},
+		})
+	} else {
+		fields = append(fields, map[string]any{
+			"text": map[string]any{"tag": "lark_md", "content": "**周重置**\n—"},
+		})
+	}
+	if n.WeeklyRemainingPct != nil {
+		fields = append(fields, map[string]any{
+			"text": map[string]any{"tag": "lark_md", "content": fmt.Sprintf("**本周剩余**\n%d%%", *n.WeeklyRemainingPct)},
+		})
+	} else {
+		fields = append(fields, map[string]any{
+			"text": map[string]any{"tag": "lark_md", "content": "**本周剩余**\n—"},
+		})
+	}
+
+	elements := []any{
+		map[string]any{"tag": "div", "fields": fields},
+		map[string]any{"tag": "hr"},
+	}
+	noteText := fmt.Sprintf("区间已重置,下次告警阈值 ≥ %d%% 消耗时触发。", n.Threshold)
+	elements = append(elements, map[string]any{
+		"tag": "note",
+		"elements": []map[string]any{
+			{"tag": "plain_text", "content": noteText},
+		},
+	})
+
+	return map[string]any{
+		"msg_type": "interactive",
+		"card": map[string]any{
+			"header": map[string]any{
+				"title":    map[string]any{"tag": "plain_text", "content": title},
+				"template": n.Severity.Template(), // SevInfo.Template() == "blue"
+			},
+			"elements": elements,
+		},
+	}
 }
