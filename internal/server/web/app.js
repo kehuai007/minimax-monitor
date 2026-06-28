@@ -109,22 +109,105 @@
     });
   });
 
-  // -------- Settings modal (skeleton: open/close only) --------
+  // -------- Settings modal --------
   const modal = $('modal');
-  const openModal = () => modal.classList.remove('hidden');
-  const closeModal = () => modal.classList.add('hidden');
+  const keyStatus = $('keyStatus');
+  const keyInputRow = $('keyInputRow');
+  const keyError = $('keyError');
+  const keySaveBtn = $('keySaveBtn');
+  const keyCancelBtn = $('keyCancelBtn');
+  const keyChangeBtn = $('keyChangeBtn');
+
+  let keyConfigured = false;
+  let saving = false;
+
+  function setKeyUI() {
+    if (keyConfigured) {
+      keyStatus.textContent = '已配置 ✓';
+      keyStatus.className = 'badge ok';
+      keyInputRow.classList.add('hidden');
+      keyChangeBtn.classList.remove('hidden');
+      keySaveBtn.classList.add('hidden');
+      keyCancelBtn.classList.add('hidden');
+    } else {
+      keyStatus.textContent = '● 未配置';
+      keyStatus.className = 'badge';
+      keyInputRow.classList.remove('hidden');
+      keyChangeBtn.classList.add('hidden');
+      keySaveBtn.classList.remove('hidden');
+      keyCancelBtn.classList.remove('hidden');
+    }
+  }
+
+  function openModal() {
+    setKeyUI();
+    keyError.classList.add('hidden');
+    keyError.textContent = '';
+    $('keyInput').value = '';
+    modal.classList.remove('hidden');
+    if (!keyConfigured) setTimeout(() => $('keyInput').focus(), 100);
+  }
+  function closeModal() {
+    if (saving) return;
+    modal.classList.add('hidden');
+  }
+
   $('settingsBtn').addEventListener('click', openModal);
-  const emptyBtn = $('emptySettingsBtn');
-  if (emptyBtn) emptyBtn.addEventListener('click', openModal);
+  if ($('emptySettingsBtn')) $('emptySettingsBtn').addEventListener('click', openModal);
   $('modal').querySelector('.modal-backdrop').addEventListener('click', closeModal);
-  $('keyCancelBtn').addEventListener('click', closeModal);
+  keyCancelBtn.addEventListener('click', closeModal);
+  keyChangeBtn.addEventListener('click', () => {
+    keyConfigured = false;
+    setKeyUI();
+    setTimeout(() => $('keyInput').focus(), 100);
+  });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeModal();
   });
 
-  // -------- Init --------
+  keySaveBtn.addEventListener('click', async () => {
+    const v = $('keyInput').value.trim();
+    if (!v) { showKeyError('请输入 API Key'); return; }
+    saving = true;
+    keySaveBtn.disabled = true;
+    keySaveBtn.textContent = '验证中…';
+    keyError.classList.add('hidden');
+    try {
+      const res = await fetch('/api/settings/key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: v }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        let msg = t;
+        try { msg = JSON.parse(t).error || t; } catch (_) {}
+        showKeyError(msg);
+        return;
+      }
+      keyConfigured = true;
+      setKeyUI();
+      // hide empty state if shown
+      $('emptyState').classList.add('hidden');
+      // refresh status (server should be picking up new key on next tick)
+    } catch (e) {
+      showKeyError(e.message);
+    } finally {
+      saving = false;
+      keySaveBtn.disabled = false;
+      keySaveBtn.textContent = '保存并验证';
+    }
+  });
+
+  function showKeyError(msg) {
+    keyError.textContent = msg;
+    keyError.classList.remove('hidden');
+  }
+
+  // initial key state from /api/status (also consolidated with Task 14 init call)
   fetch('/api/status').then((r) => r.json()).then((s) => {
-    if (s.keyring_configured) $('emptyState').classList.add('hidden');
+    keyConfigured = !!s.keyring_configured;
+    if (keyConfigured) $('emptyState').classList.add('hidden');
     else $('emptyState').classList.remove('hidden');
     if (s.db_size_mb) { /* shown elsewhere if needed */ }
   }).catch(() => {});
