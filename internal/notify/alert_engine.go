@@ -36,6 +36,11 @@ func NewAlertEngine(db *storage.DB, notifier Notifier, cfgFn func() storage.Aler
 //   - interval_end_at strictly advanced (new window boundary)
 // All three must hold; missing IntervalRemainingPct or IntervalEndAt on
 // either side disables detection.
+//
+// Predicate note: integer pct domain is 0..100. `*prev.IntervalRemainingPct > 0`
+// (consumed > 0) and `*prev.IntervalRemainingPct < 100` (remaining < 100) are
+// equivalent at this resolution — a value of 0 means consumed=100 which is
+// impossible, and `< 100` reads more clearly as "still has headroom".
 func isResetTransition(prev, cur storage.Snapshot) bool {
 	if prev.IntervalRemainingPct == nil || cur.IntervalRemainingPct == nil {
 		return false
@@ -66,7 +71,17 @@ func (e *AlertEngine) Evaluate(ctx context.Context, snaps []storage.Snapshot) er
 
 		// 1) Reset transition detection — runs before threshold check so
 		// a fresh window with consumed=0 doesn't accidentally trigger.
-		prev, _ := e.db.PrevSnapshot(ctx, s.ModelName, s.FetchedAt)
+		prev, err := e.db.PrevSnapshot(ctx, s.ModelName, s.FetchedAt)
+		if err != nil {
+			// Surface transient DB errors (SQLite locked, schema drift,
+			// disk full) instead of silently swallowing them: a zero-value
+			// prev would make isResetTransition return false and the reset
+			// notification would never fire. We log and fall through to
+			// the threshold branch so the engine can still alert.
+			slog.Warn("alert: prev snapshot lookup failed",
+				"model", s.ModelName, "err", err)
+			// continue to threshold branch — do NOT skip the snapshot entirely
+		}
 		if isResetTransition(prev, s) {
 			trend := e.recentTrend(ctx, s.ModelName, now)
 			st, _ := e.db.GetAlertState(ctx, s.ModelName)
@@ -76,12 +91,19 @@ func (e *AlertEngine) Evaluate(ctx context.Context, snaps []storage.Snapshot) er
 					"model", s.ModelName, "err", err)
 				// do NOT clear state on failure — next tick may retry
 			} else {
+				// ClearAlertState failure after a successful send is a
+				// state-machine break: the next tick's threshold crossing
+				// may dedup against stale NotifiedPcts from the prior
+				// window and silently skip. Log loudly (error level) so
+				// operators see this, but still fall through to the
+				// threshold branch below so any concurrent threshold
+				// crossing on this snapshot can still fire.
 				if err := e.db.ClearAlertState(ctx, s.ModelName); err != nil {
-					slog.Warn("alert: clear state after reset failed",
+					slog.Error("alert: clear state after reset failed",
 						"model", s.ModelName, "err", err)
 				}
+				continue
 			}
-			continue
 		}
 
 		// 2) Consumption threshold check

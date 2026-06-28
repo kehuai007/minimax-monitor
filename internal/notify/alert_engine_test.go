@@ -3,7 +3,9 @@ package notify
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -352,4 +354,72 @@ func TestAlertEngine_ResetAfterThreshold_ClearsThenRefires(t *testing.T) {
 	if fn.Calls()[2].Kind != KindAlert {
 		t.Errorf("call[2].Kind = %q, want %q", fn.Calls()[2].Kind, KindAlert)
 	}
+}
+
+// TestAlertEngine_PrevSnapshotError_NoPanicNoFire is a regression test for the
+// silent-swallow bug: when PrevSnapshot returns an error (e.g. transient SQLite
+// lock, schema drift, disk full), the engine must NOT panic, must NOT fire the
+// reset card, and must surface the error via slog.Warn. We simulate the failure
+// by closing the DB before Evaluate — every DB call then returns an error.
+func TestAlertEngine_PrevSnapshotError_NoPanicNoFire(t *testing.T) {
+	db := openTestDB(t)
+	fn := &fakeNotifier{}
+	eng := NewAlertEngine(db, fn, func() storage.AlertConfig { return storage.AlertConfig{Enabled: true, URL: "x", Threshold: 80} })
+	// Close the DB so any DB call inside Evaluate fails. This simulates the
+	// transient DB-error condition the fix targets.
+	if err := db.Close(); err != nil {
+		t.Fatalf("db.Close: %v", err)
+	}
+	// Capture slog output so we can assert the Warn line is emitted.
+	var logBuf safeBuffer
+	prevLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prevLogger)
+
+	ctx := context.Background()
+	// Supply a snapshot that would otherwise look like a reset transition
+	// (remaining=100, with end_at set). With PrevSnapshot erroring, the
+	// engine must not fire the reset card.
+	cur := snapWithEnd("general", 100, 2_000_000)
+	// Must not panic.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Evaluate panicked on PrevSnapshot error: %v", r)
+		}
+	}()
+	if err := eng.Evaluate(ctx, []storage.Snapshot{cur}); err != nil {
+		t.Fatalf("Evaluate returned error: %v", err)
+	}
+	if got := len(fn.Calls()); got != 0 {
+		t.Errorf("calls = %d, want 0 (reset must not fire when PrevSnapshot errors)", got)
+	}
+	// The error must have been logged via slog.Warn.
+	logs := logBuf.String()
+	if !contains(logs, "prev snapshot lookup failed") {
+		t.Errorf("expected slog.Warn with 'prev snapshot lookup failed' message, got logs:\n%s", logs)
+	}
+}
+
+// safeBuffer is a minimal thread-safe bytes.Buffer for capturing slog output.
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf []byte
+}
+
+func (b *safeBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf = append(b.buf, p...)
+	return len(p), nil
+}
+
+func (b *safeBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return string(b.buf)
+}
+
+// contains reports whether substr appears in s.
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
 }
