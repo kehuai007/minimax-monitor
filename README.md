@@ -43,14 +43,18 @@ The listen address is **CLI-only** via `-p <port>`.
 ## Alerting (Feishu / Lark)
 
 The dashboard can post interactive-card notifications to a Feishu (or Lark)
-custom bot when the configured interval-remaining threshold is crossed.
+custom bot when the configured **consumption** threshold is crossed.
 
 1. Click ⚙ in the header → expand "告警通知".
 2. Paste your webhook URL (with optional `?secret=...` — signing is auto-detected).
-3. Set the threshold (default 80). Alerts fire when remaining % drops at or
-   below this value, then once more for every additional 1% drop until the
-   5-minute window resets.
+3. Set the threshold (default 80). Alerts fire when **consumed %** reaches
+   this value, then once more for every additional 1% of consumption until
+   the 5-minute window resets.
 4. Click "保存", then "发送测试" to verify delivery.
+
+When the 5-minute interval window rolls over after real usage, a separate
+`🔄 配额重置` card is also delivered, summarising the highest consumption
+reached during the closing window.
 
 Disable to clear all dedup state — the next enable starts a fresh window.
 
