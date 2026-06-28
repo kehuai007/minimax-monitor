@@ -39,9 +39,16 @@ func (h *WSHub) Broadcast(snap []storage.Snapshot) {
 	}
 	h.mu.Unlock()
 
+	msg := map[string]any{
+		"type": "snapshot",
+		"data": map[string]any{
+			"fetched_at": time.Now().UnixMilli(),
+			"models":     snap,
+		},
+	}
 	for _, c := range clients {
 		ctx, cancel := context.WithTimeout(context.Background(), wsWriteTimeout)
-		err := wsjson.Write(ctx, c, snap)
+		err := wsjson.Write(ctx, c, msg)
 		cancel()
 		if err != nil {
 			log.Printf("ws: write error: %v", err)
@@ -60,7 +67,14 @@ func (h *WSHub) Register(c *websocket.Conn) {
 
 	if snap != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), wsWriteTimeout)
-		_ = wsjson.Write(ctx, c, snap)
+		msg := map[string]any{
+			"type": "snapshot",
+			"data": map[string]any{
+				"fetched_at": time.Now().UnixMilli(),
+				"models":     snap,
+			},
+		}
+		_ = wsjson.Write(ctx, c, msg)
 		cancel()
 	}
 }

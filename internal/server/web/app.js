@@ -62,6 +62,9 @@
     renderCards();
     $('lastUpdate').textContent = fmtTime(fetchedAt);
     $('fetchAgo').textContent = fmtAgo(fetchedAt);
+    if (typeof data.consec_errors === 'number') {
+      $('errCount').textContent = data.consec_errors;
+    }
   }
 
   // -------- Cards --------
@@ -209,9 +212,21 @@
     keyConfigured = !!s.keyring_configured;
     if (keyConfigured) $('emptyState').classList.add('hidden');
     else $('emptyState').classList.remove('hidden');
+    if (typeof s.consec_errors === 'number') {
+      $('errCount').textContent = s.consec_errors;
+    }
     if (s.db_size_mb) { /* shown elsewhere if needed */ }
   }).catch(() => {});
   connect();
+
+  // -------- Error count refresh --------
+  setInterval(() => {
+    fetch('/api/status').then((r) => r.json()).then((s) => {
+      if (typeof s.consec_errors === 'number') {
+        $('errCount').textContent = s.consec_errors;
+      }
+    }).catch(() => {});
+  }, 5000);
 
   // -------- Charts --------
   const RANGE_MS = { '1h': 3600e3, '6h': 6 * 3600e3, '24h': 24 * 3600e3, '7d': 7 * 86400e3, '31d': 31 * 86400e3 };

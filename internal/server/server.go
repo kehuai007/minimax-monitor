@@ -40,6 +40,10 @@ func New(db *storage.DB, store keyringStore) *Server {
 		Store:  store,
 	}
 	s.Engine.Use(gin.Recovery())
+	s.Engine.Use(func(c *gin.Context) {
+		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:;")
+		c.Next()
+	})
 	s.routes()
 	s.mountStatic()
 	return s

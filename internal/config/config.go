@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -66,7 +67,7 @@ func levelEnv(key string, def slog.Level) slog.Level {
 	if !ok || v == "" {
 		return def
 	}
-	switch v {
+	switch strings.ToLower(v) {
 	case "debug":
 		return slog.LevelDebug
 	case "info":
