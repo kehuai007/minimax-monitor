@@ -12,13 +12,6 @@
     if (s < 3600) return Math.floor(s / 60) + 'm';
     return Math.floor(s / 3600) + 'h';
   };
-  const formatRangeMs = (ms) => {
-    const s = Math.round(ms / 1000);
-    if (s < 60) return s + 's';
-    if (s < 3600) return Math.floor(s / 60) + 'm';
-    return Math.floor(s / 3600) + 'h ' + (s % 3600 ? Math.floor((s % 3600) / 60) + 'm' : '');
-  };
-
   const state = {
     models: new Map(),   // name -> snapshot
     range: '24h',
@@ -68,7 +61,36 @@
   }
 
   // -------- Cards --------
-  const statusText = (s) => s === 1 ? '活跃' : s === 3 ? '未活动' : '--';
+  const statusLabel = (s) => s === 1 ? '活跃' : s === 3 ? '不限' : '--';
+
+  const ACCENT_RED = [239, 68, 68];  // matches --status-bad in style.css
+  const hexToRgb = (h) => {
+    const m = h.replace('#', '');
+    return [parseInt(m.slice(0, 2), 16), parseInt(m.slice(2, 4), 16), parseInt(m.slice(4, 6), 16)];
+  };
+  const barColor = (model, consumed) => {
+    const accent = ACCENT[model] || '#00d4ff';
+    if (consumed < 80) return accent;
+    const t = Math.min(1, (consumed - 80) / 20);
+    const a = hexToRgb(accent);
+    const r = Math.round(a[0] + (ACCENT_RED[0] - a[0]) * t);
+    const g = Math.round(a[1] + (ACCENT_RED[1] - a[1]) * t);
+    const b = Math.round(a[2] + (ACCENT_RED[2] - a[2]) * t);
+    return `rgb(${r},${g},${b})`;
+  };
+
+  const formatIntervalMeta = (ms, unlimited, status) => {
+    if (unlimited) return '不限';
+    const s = Math.round(ms / 1000);
+    const time = s < 60
+      ? s + 's'
+      : s < 3600
+        ? Math.floor(s / 60) + 'm'
+        : Math.floor(s / 3600) + 'h ' + (s % 3600 ? Math.floor((s % 3600) / 60) + 'm' : '');
+    const label = statusLabel(status);
+    return label === '--' ? time : `${time} · ${label}`;
+  };
+
   function renderCards() {
     const root = $('cards');
     if (state.models.size === 0) {
@@ -83,20 +105,22 @@
       const card = document.createElement('div');
       card.className = 'card';
       card.dataset.model = name;
-      // 已消耗 = 100% - 剩余
-      const remainPct = m.interval_remaining_pct ?? 0;
-      const consumed = Math.max(0, Math.min(100, 100 - remainPct));
+      const intervalUnlimited = m.interval_status === 3;
+      const weeklyUnlimited = m.weekly_status === 3;
+      const remainPct = m.interval_remaining_pct ?? 100;
+      const consumed = intervalUnlimited ? 0 : Math.max(0, Math.min(100, 100 - remainPct));
       const remainWeekly = m.weekly_remaining_pct;
-      const consumedWeekly = (remainWeekly == null) ? null : Math.max(0, Math.min(100, 100 - remainWeekly));
+      const consumedWeekly = weeklyUnlimited
+        ? 0
+        : (remainWeekly == null ? null : Math.max(0, Math.min(100, 100 - remainWeekly)));
       const remainsMs = m.interval_remains_ms ?? 0;
-      const iStatus = statusText(m.interval_status);
-      const wStatus = statusText(m.weekly_status);
+      const color = intervalUnlimited ? ACCENT[name] || '#00d4ff' : barColor(name, consumed);
       card.innerHTML = `
         <h3>${name} <span class="pct-kind">已用</span></h3>
-        <div class="pct" data-target="${consumed}">${consumed}%</div>
-        <div class="bar"><div class="bar-fill" style="width:${consumed}%"></div></div>
-        <div class="meta"><span>区间</span><b>${formatRangeMs(remainsMs)} · ${iStatus}</b></div>
-        <div class="meta"><span>本周</span><b>${consumedWeekly == null ? '--' : consumedWeekly}% · ${wStatus}</b></div>
+        <div class="pct" style="color:${color}">${consumed}%</div>
+        <div class="bar"><div class="bar-fill" style="width:${consumed}%;background:${color}"></div></div>
+        <div class="meta"><span>区间</span><b>${formatIntervalMeta(remainsMs, intervalUnlimited, m.interval_status)}</b></div>
+        <div class="meta"><span>本周</span><b>${weeklyUnlimited ? '不限' : (consumedWeekly == null ? '--' : consumedWeekly + '%')}</b></div>
       `;
       root.appendChild(card);
     });
