@@ -148,6 +148,117 @@
     }
   }
 
+  // -------- Alert section --------
+  const alertToggle = $('alertToggle');
+  const alertBody = $('alertBody');
+  const alertBadge = $('alertBadge');
+  const alertEnabled = $('alertEnabled');
+  const alertURL = $('alertURL');
+  const alertThreshold = $('alertThreshold');
+  const alertError = $('alertError');
+  const alertTestBtn = $('alertTestBtn');
+  const alertSaveBtn = $('alertSaveBtn');
+
+  function setAlertBadge(cfg) {
+    if (cfg.url && cfg.enabled) {
+      alertBadge.textContent = `已启用·阈值${cfg.threshold}`;
+      alertBadge.className = 'badge warn';
+    } else if (cfg.url) {
+      alertBadge.textContent = '已禁用';
+      alertBadge.className = 'badge';
+    } else {
+      alertBadge.textContent = '未配置';
+      alertBadge.className = 'badge';
+    }
+  }
+
+  async function loadAlertConfig() {
+    try {
+      const res = await fetch('/api/settings/alert');
+      if (!res.ok) return;
+      const cfg = await res.json();
+      alertEnabled.checked = !!cfg.enabled;
+      alertURL.value = '';
+      alertURL.placeholder = cfg.url
+        ? `已保存: ${cfg.url} (留空表示不变)`
+        : 'https://open.feishu.cn/open-apis/bot/v2/hook/...';
+      alertThreshold.value = cfg.threshold || 80;
+      setAlertBadge(cfg);
+    } catch (_) {}
+  }
+
+  alertToggle.addEventListener('click', () => {
+    const expanded = alertToggle.getAttribute('aria-expanded') === 'true';
+    const next = !expanded;
+    alertToggle.setAttribute('aria-expanded', String(next));
+    alertBody.classList.toggle('hidden', !next);
+    if (next) loadAlertConfig();
+  });
+
+  function showAlertError(msg) {
+    alertError.textContent = msg;
+    alertError.classList.remove('hidden');
+  }
+  function clearAlertError() {
+    alertError.classList.add('hidden');
+    alertError.textContent = '';
+  }
+
+  alertSaveBtn.addEventListener('click', async () => {
+    clearAlertError();
+    alertSaveBtn.disabled = true;
+    const orig = alertSaveBtn.textContent;
+    alertSaveBtn.textContent = '保存中…';
+    try {
+      const body = {
+        enabled: alertEnabled.checked,
+        url: alertURL.value.trim(),
+        threshold: parseInt(alertThreshold.value, 10) || 80,
+      };
+      const res = await fetch('/api/settings/alert', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        let msg = t;
+        try { msg = JSON.parse(t).error || t; } catch (_) {}
+        showAlertError(msg);
+        return;
+      }
+      await loadAlertConfig();
+    } catch (e) {
+      showAlertError(e.message);
+    } finally {
+      alertSaveBtn.disabled = false;
+      alertSaveBtn.textContent = orig;
+    }
+  });
+
+  alertTestBtn.addEventListener('click', async () => {
+    clearAlertError();
+    alertTestBtn.disabled = true;
+    const orig = alertTestBtn.textContent;
+    alertTestBtn.textContent = '发送中…';
+    try {
+      const res = await fetch('/api/settings/alert/test', { method: 'POST' });
+      if (!res.ok) {
+        const t = await res.text();
+        let msg = t;
+        try { msg = JSON.parse(t).error || t; } catch (_) {}
+        showAlertError('✗ ' + msg);
+        return;
+      }
+      showAlertError('✓ 已发送');
+    } catch (e) {
+      showAlertError('✗ ' + e.message);
+    } finally {
+      alertTestBtn.disabled = false;
+      alertTestBtn.textContent = orig;
+    }
+  });
+
   function openModal() {
     setKeyUI();
     keyError.classList.add('hidden');
