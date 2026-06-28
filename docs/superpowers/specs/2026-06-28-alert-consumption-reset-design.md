@@ -99,7 +99,38 @@ None. The existing `alert_state.notified_pcts` continues to store
 *remaining* integer values (e.g. `[20, 19, 18]` meaning "we notified when
 remaining was 20%, 19%, 18%"). No row rewrite, no version bump.
 
-### 3.2 Go types
+### 3.3 Status semantics (from API)
+
+The API exposes `current_interval_status` and `current_weekly_status`
+as integers on each model. Semantics:
+
+| Status | Meaning | Display |
+|---|---|---|
+| `1` | 限额中 (active quota) | `活跃` |
+| `3` | 无限制/正常 (unlimited or not-enabled) | `不限` |
+| other / null | unknown | `--` |
+
+Per the upstream API v1.3.0 notes, `status=3` in the interval window
+has two possible real-world meanings (genuine unlimited model, or
+package not enabled for that model); the dashboard cannot distinguish
+them from metadata alone. Both are treated identically: no quota is
+consumed, no threshold alert fires, and the time-to-reset is not
+informative. The dashboard surfaces them as `不限`.
+
+This semantic flows through the entire pipeline:
+
+- **Backend** (`alert_engine.go`): `remaining == 100 && consumed == 0`
+  ⇒ threshold check fails to fire; reset detection requires `prev.
+  IntervalRemainingPct > 0`, so a model that was always unlimited
+  (consumed = 0 across the window) never produces a reset notification
+  either.
+- **Card payload** (`feishu.go`): unlimited models never trigger the
+  alert path; reset path requires prior consumption.
+- **Web** (`app.js`): the card shows `0%` consumed and `不限` in the
+  time/status row; the red-shift never engages because consumed is
+  always 0.
+
+### 3.4 Go types
 
 ```go
 // internal/notify/notify.go (EDITED)
@@ -375,6 +406,18 @@ threshold alerts.
 
 ## 8. Web UI
 
+The web data model follows the `buildModels(remains)` pattern:
+
+- `used = 100 - remaining_percent` (consumed %, primary value)
+- `total = 100` (base; `used/total` ratio equals used %)
+- `remains_time_ms` (time to next interval boundary)
+- `interval_unlimited = (interval_status === 3)` (boolean)
+- `weekly_unlimited = (weekly_status === 3)` (boolean)
+
+These are derived on the frontend from the existing `interval_status`
+and `weekly_status` integer fields exposed via `Snapshot`; no schema
+or Go struct change is needed.
+
 ### 8.1 Settings modal — threshold label
 
 ```html
@@ -385,10 +428,81 @@ threshold alerts.
 </div>
 ```
 
-### 8.2 Progress bar — red shift
+### 8.2 Card render — buildModels-style
 
-`renderCards` computes a per-card color and applies it inline to both
-`.bar-fill` and `.pct`:
+`renderCards` builds each card from the snapshot, mirroring the
+upstream `buildModels` shape. Two booleans are derived:
+
+```js
+const intervalUnlimited = m.interval_status === 3;
+const weeklyUnlimited = m.weekly_status === 3;
+```
+
+The `used` (consumed %) is the prominent value. The progress bar and
+the large percentage number share a color computed by `barColor`.
+
+Template:
+
+```js
+const remainPct = m.interval_remaining_pct ?? 100;
+const consumed = intervalUnlimited ? 0 : Math.max(0, Math.min(100, 100 - remainPct));
+const remainWeekly = m.weekly_remaining_pct;
+const consumedWeekly = weeklyUnlimited
+  ? 0
+  : (remainWeekly == null ? null : Math.max(0, Math.min(100, 100 - remainWeekly)));
+const remainsMs = m.interval_remains_ms ?? 0;
+const color = intervalUnlimited ? 'var(--accent)' : barColor(name, consumed);
+card.innerHTML = `
+  <h3>${name} <span class="pct-kind">已用</span></h3>
+  <div class="pct" style="color:${color}">${consumed}%</div>
+  <div class="bar"><div class="bar-fill" style="width:${consumed}%;background:${color}"></div></div>
+  <div class="meta"><span>区间</span><b>${formatIntervalMeta(remainsMs, intervalUnlimited)}</b></div>
+  <div class="meta"><span>本周</span><b>${weeklyUnlimited ? '不限' : (consumedWeekly == null ? '--' : consumedWeekly + '%')}</b></div>
+`;
+```
+
+Unlimited models keep the accent color (never red) and the meta line
+shows `不限`. Limited models follow the red-shift curve.
+
+### 8.3 Time/status display — formatIntervalMeta
+
+The interval-row meta string follows these rules, applied in order:
+
+1. **`interval_unlimited`** ⇒ render `不限` (no time, no status).
+2. **time < 60 s** ⇒ render `<n>s` (no status; seconds are
+   informative on their own).
+3. **time < 1 h** ⇒ render `<n>m` (no status; minutes are
+   informative on their own — this is the "33m" rule).
+4. **status is `'--'`** (unknown) ⇒ render `1h 30m` (drop the
+   non-informative `· --` suffix).
+5. **otherwise** ⇒ render `1h 30m · 活跃` (or `· 未活动` /
+   `· 不限` per the status semantics table).
+
+```js
+function formatIntervalMeta(ms, unlimited) {
+  if (unlimited) return '不限';
+  const s = Math.round(ms / 1000);
+  const time = s < 60
+    ? s + 's'
+    : s < 3600
+      ? Math.floor(s / 60) + 'm'
+      : Math.floor(s / 3600) + 'h ' + (s % 3600 ? Math.floor((s % 3600) / 60) + 'm' : '');
+  const status = statusLabel(intervalStatus);   // '活跃' | '不限' | '--'
+  return status === '--' ? time : `${time} · ${status}`;
+}
+
+function statusLabel(s) {
+  if (s === 1) return '活跃';
+  if (s === 3) return '不限';
+  return '--';
+}
+```
+
+This replaces the existing `statusText` helper which incorrectly
+returned `未活动` for status=3 (the correct semantic per upstream is
+"无限制/正常", rendered here as `不限`).
+
+### 8.4 Red-shift colour computation
 
 ```js
 function barColor(model, consumed) {
@@ -404,39 +518,15 @@ function barColor(model, consumed) {
 }
 
 function hexToRgb(h) {
-  const m = h.replace('#','');
-  return [parseInt(m.slice(0,2),16), parseInt(m.slice(2,4),16), parseInt(m.slice(4,6),16)];
+  const m = h.replace('#', '');
+  return [parseInt(m.slice(0, 2), 16), parseInt(m.slice(2, 4), 16), parseInt(m.slice(4, 6), 16)];
 }
 ```
 
-Template change:
-
-```js
-card.innerHTML = `
-  <h3>${name} <span class="pct-kind">已用</span></h3>
-  <div class="pct" style="color:${color}">${consumed}%</div>
-  <div class="bar"><div class="bar-fill" style="width:${consumed}%;background:${color}"></div></div>
-  <div class="meta"><span>区间</span><b>${formatRangeMs(remainsMs)}${iStatus === '--' ? '' : ' · ' + iStatus}</b></div>
-  <div class="meta"><span>本周</span><b>${consumedWeekly == null ? '--' : consumedWeekly}% · ${wStatus}</b></div>
-`;
-```
-
 The CSS rule `.bar-fill { background: var(--accent); }` is dropped (the
-inline style wins).
-
-### 8.3 Time display — `<1h` drop status
-
-```js
-const formatRangeMs = (ms) => {
-  const s = Math.round(ms / 1000);
-  if (s < 60) return s + 's';
-  if (s < 3600) return Math.floor(s / 60) + 'm';          // <1h, no · status
-  return Math.floor(s / 3600) + 'h ' + (s % 3600 ? Math.floor((s % 3600) / 60) + 'm' : '');
-};
-```
-
-For the status suffix, the template change above already conditionally
-appends ` · <status>` only when the status is informative (not `'--'`).
+inline style wins). Unlimited models bypass `barColor` and render the
+raw `--accent` colour (consumed is forced to 0 in that branch, so the
+threshold for the red-shift is never reached).
 
 ---
 
@@ -467,6 +557,7 @@ Unchanged. No new fields, no new constructor args.
 | `internal/notify/alert_engine_test.go` | EDIT: `TestAlertEngine_CrossingThreshold_OneCall` now uses `snap("general", 20)` (consumed=80, threshold=80) and asserts `c.Used == 80`; EDIT `TestAlertEngine_DropBy1_NewCallEachTime` uses `[20,19,18,17]`. NEW: `TestAlertEngine_ResetTransition_FiresReset` (prev consumed>0, cur=0, end_at advanced → 1 call with `Kind=="reset"`, `Severity==SevInfo`); NEW `TestAlertEngine_ResetTransition_NoUsage_DoesNotFire` (prev remaining=100, cur=100, end_at advanced → 0 calls); NEW `TestAlertEngine_ResetTransition_SameWindow_DoesNotFire` (end_at unchanged → 0 calls); NEW `TestAlertEngine_ResetAfterThreshold_ClearsThenRefires` (consumed=80 → notify; reset transition; consumed=80 again → notify); NEW `TestAlertEngine_ResetCard_WindowMaxConsumed` |
 | `internal/notify/feishu_test.go` | NEW `TestBuildCardPayload_AlertCard_EmphasizesUsed` (asserts "**消耗**" field exists and appears before "剩余"); NEW `TestBuildCardPayload_ResetCard_TitleAndFields` (asserts title contains "🔄 配额重置", template is "blue", field "本周期最高消耗" present); EDIT existing assertion in `TestFeishuClient_Send_Success` to construct a `Kind:"reset"` notification and confirm the card is well-formed |
 | `internal/notify/notify_test.go` | NEW `TestFormatResetRemain_*` unchanged; NEW `TestBuildResetNotification_*` (verify `Kind`, `Used=0`, `Remaining=100`, optional fields populated from snapshot) |
+| web (no Go test runner — manual or playwright) | Verify in browser: unlimited model renders `不限`; `<1h` shows `33m`; `≥1h + status=--` shows `1h 30m`; `≥1h + status=1` shows `1h 30m · 活跃`; red-shift visible at consumption ≥ 80% |
 
 Test command: `go test ./...` from repo root.
 
@@ -496,10 +587,14 @@ Test command: `go test ./...` from repo root.
    `#ef4444`.
 7. The dashboard's "区间" meta line shows `33m` (no `· --`) when
    remaining-time < 1h and status is unknown; shows `1h 30m · 活跃`
-   when remaining-time ≥ 1h and status is known.
+   when remaining-time ≥ 1h and status is known; shows `1h 30m`
+   (no `· --`) when remaining-time ≥ 1h and status is `--`; shows
+   `不限` for unlimited models (status=3).
 8. The settings modal label reads `阈值 (消耗%)` and the help text
    reads `消耗达到该值时告警;每再消耗 1% 再告警一次`.
-9. `go test ./...` passes.
+9. A model with `interval_status=3` (unlimited) renders with `0%`
+   consumed, accent-coloured (never red), and `不限` in the meta row.
+10. `go test ./...` passes.
 
 ---
 
