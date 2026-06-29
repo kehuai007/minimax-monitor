@@ -19,11 +19,13 @@ import (
 	"minimax-monitor/internal/scheduler"
 	"minimax-monitor/internal/server"
 	"minimax-monitor/internal/storage"
+	"minimax-monitor/internal/version"
 )
 
 func main() {
 	port := flag.Int("p", 13337, "listen port")
 	flag.Parse()
+	slog.Info("starting minimax-monitor", "version", version.Version, "port", *port)
 	cfg := config.Load()
 	setupLogging(cfg.LogLevel)
 
