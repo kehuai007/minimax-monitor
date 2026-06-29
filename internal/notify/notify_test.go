@@ -35,8 +35,8 @@ func TestSeverityFor(t *testing.T) {
 }
 
 func TestFormatResetTime_Today(t *testing.T) {
-	loc := time.Local
-	ts := time.Date(2026, 6, 28, 16, 45, 55, 0, loc).UnixMilli()
+	now := time.Now()
+	ts := time.Date(now.Year(), now.Month(), now.Day(), 16, 45, 55, 0, now.Location()).UnixMilli()
 	got := FormatResetTime(ts)
 	want := "16:45:55"
 	if got != want {
