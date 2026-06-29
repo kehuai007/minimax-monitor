@@ -64,18 +64,22 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
+          VERSION: ${{ steps.ver.outputs.version }}
+          OUT_NAME: minimax-monitor-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
         run: |
           mkdir -p dist
-          out="dist/minimax-monitor-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
           go build -trimpath \
-            -ldflags="-s -w -X minimax-monitor/internal/version.Version=${{ steps.ver.outputs.version }}" \
-            -o "$out" ./cmd/minimax-monitor
+            -ldflags="-s -w -X minimax-monitor/internal/version.Version=$VERSION" \
+            -o "dist/$OUT_NAME" \
+            ./cmd/minimax-monitor
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
+        env:
+          OUT_NAME: minimax-monitor-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
         with:
           name: ${{ matrix.artifact }}
-          path: dist/minimax-monitor-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          path: dist/${{ env.OUT_NAME }}
           if-no-files-found: error
 
       - name: Collect binaries
