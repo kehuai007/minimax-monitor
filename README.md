@@ -115,6 +115,14 @@ The repository's "Read and write permissions" workflow setting must be
 enabled (Settings → Actions → General → Workflow permissions) for
 `GITHUB_TOKEN` to publish the release.
 
-## License
+## 支持请扫码开通MiniMax
+🚀 MiniMax Token Plan
+订阅一份套餐，解锁最新模型 —— 前沿 Coding 能力、1M 超长上下文、原生多模态，图文音视频共用套餐额度。
+🎁 邀友双赢福利
+好友订阅享 9折 + Builder 权益，邀请人得 10% 返利 + 社区特权！
+立即订阅：https://platform.minimaxi.com/subscribe/token-plan?code=nAAsoATPsf&source=link
+
+<img width="1536" height="2202" alt="MiniMax_TokenPlan_UsageReport" src="https://github.com/user-attachments/assets/812435c2-f108-4d98-bca9-174162e51c7f" />
+
 
 Private / not yet licensed.
