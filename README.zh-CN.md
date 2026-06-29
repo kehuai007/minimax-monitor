@@ -87,6 +87,27 @@ make test        # go test ./...
 完整设计见 [`docs/superpowers/specs/2026-06-27-minimax-monitor-design.md`](docs/superpowers/specs/2026-06-27-minimax-monitor-design.md)，
 实现计划见 [`docs/superpowers/plans/2026-06-27-minimax-monitor.md`](docs/superpowers/plans/2026-06-27-minimax-monitor.md)。
 
+## 发布版本
+
+推送形如 `vX.Y.Z`（例如 `v1.2.3` 或 `v2.0.0-rc.1`）的标签即可触发
+`.github/workflows/release.yml` 发布工作流。流程：
+
+1. 先运行 `go test ./...` 作为门控；
+2. 交叉编译 4 个二进制（linux/amd64、linux/arm64、darwin/arm64、
+   windows/amd64），并将版本号嵌入二进制；
+3. 生成 4 个二进制的 `SHA256SUMS`；
+4. 在 GitHub Release 页面发布为 `latest`，包含二进制与 `SHA256SUMS`。
+
+发布命令：
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+仓库需在 Settings → Actions → General → Workflow permissions 中开启
+"Read and write permissions"，否则 `GITHUB_TOKEN` 无权发布 Release。
+
 ## 许可证
 
 私有项目，暂未开源许可。
