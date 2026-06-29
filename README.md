@@ -92,6 +92,29 @@ See [`docs/superpowers/specs/2026-06-27-minimax-monitor-design.md`](docs/superpo
 for the full design and [`docs/superpowers/plans/2026-06-27-minimax-monitor.md`](docs/superpowers/plans/2026-06-27-minimax-monitor.md)
 for the implementation plan.
 
+## Releases
+
+Push a `vX.Y.Z` tag (e.g. `v1.2.3` or `v2.0.0-rc.1`) to trigger the
+release workflow in `.github/workflows/release.yml`. The workflow:
+
+1. Runs `go test ./...` as a gate.
+2. Cross-compiles four binaries (linux/amd64, linux/arm64,
+   darwin/arm64, windows/amd64) with the tag version embedded.
+3. Generates `SHA256SUMS` for the four binaries.
+4. Publishes a `latest` GitHub Release with the binaries and the
+   `SHA256SUMS` file.
+
+Cut a release:
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+The repository's "Read and write permissions" workflow setting must be
+enabled (Settings → Actions → General → Workflow permissions) for
+`GITHUB_TOKEN` to publish the release.
+
 ## License
 
 Private / not yet licensed.

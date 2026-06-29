@@ -1,0 +1,117 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.validate.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate tag format
+        id: validate
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+(\.[0-9]+){2}(-.+)?$ ]]; then
+            echo "::notice::Tag '$GITHUB_REF_NAME' does not match vX.Y.Z; skipping release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+      - name: Run tests
+        if: steps.validate.outputs.skip != 'true'
+        run: go test ./...
+
+  release:
+    needs: test
+    if: needs.test.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux,  goarch: amd64, ext: '',    artifact: binary-linux-amd64 }
+          - { goos: linux,  goarch: arm64, ext: '',    artifact: binary-linux-arm64 }
+          - { goos: darwin, goarch: arm64, ext: '',    artifact: binary-darwin-arm64 }
+          - { goos: windows, goarch: amd64, ext: '.exe', artifact: binary-windows-amd64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+          VERSION: ${{ steps.ver.outputs.version }}
+          OUT_NAME: minimax-monitor-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+        run: |
+          mkdir -p dist
+          go build -trimpath \
+            -ldflags="-s -w -X minimax-monitor/internal/version.Version=$VERSION" \
+            -o "dist/$OUT_NAME" \
+            ./cmd/minimax-monitor
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        env:
+          OUT_NAME: minimax-monitor-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ env.OUT_NAME }}
+          if-no-files-found: error
+
+      - name: Collect binaries
+        if: matrix.goos == 'windows' && matrix.goarch == 'amd64'
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Compute SHA256SUMS
+        if: matrix.goos == 'windows' && matrix.goarch == 'amd64'
+        shell: bash
+        run: |
+          cd dist
+          sha256sum minimax-monitor-linux-amd64 \
+                    minimax-monitor-linux-arm64 \
+                    minimax-monitor-darwin-arm64 \
+                    minimax-monitor-windows-amd64.exe \
+            > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create GitHub Release
+        if: matrix.goos == 'windows' && matrix.goarch == 'amd64'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/minimax-monitor-linux-amd64
+            dist/minimax-monitor-linux-arm64
+            dist/minimax-monitor-darwin-arm64
+            dist/minimax-monitor-windows-amd64.exe
+            dist/SHA256SUMS
