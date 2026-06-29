@@ -9,6 +9,8 @@ and visualises **31 days** of history in a dark-themed local dashboard.
 - **Live** — WebSocket-pushed model cards; ECharts trend panels.
 - **No alerts** in v1; **no auth** (relies on listener binding).
 
+![alt text](pic/ScreenShot_2026-06-29_112120_518.png)
+![alt text](pic/ScreenShot_2026-06-29_112200_946.png)
 ## Quick start (Windows)
 
 ```bat
