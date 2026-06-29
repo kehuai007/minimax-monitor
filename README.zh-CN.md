@@ -8,7 +8,7 @@
 - **实时** — WebSocket 推送模型卡片；ECharts 趋势图。
 - v1 版本**不带告警**；**无鉴权**（依赖监听地址绑定）。
 
-![alt text](pic/ScreenShot_2026-06-29_112120_518.png)
+![web主图](pic/ScreenShot_2026-06-29_112120_518.png)
 ![alt text](pic/ScreenShot_2026-06-29_112200_946.png)
 
 ## 快速开始（Windows）
