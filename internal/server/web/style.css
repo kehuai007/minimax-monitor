@@ -6,7 +6,6 @@
   --text-primary:   #e6e9f5;
   --text-muted:     #6b7390;
   --accent-general: #00d4ff;
-  --accent-video:   #a855f7;
   --status-good:    #10b981;
   --status-warn:    #f59e0b;
   --status-bad:     #ef4444;
@@ -57,7 +56,6 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 .card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
   background: var(--accent); opacity: 0.8; }
 .card[data-model="general"] { --accent: var(--accent-general); }
-.card[data-model="video"]   { --accent: var(--accent-video); }
 .card h3 { margin: 0 0 4px; font-size: 13px; color: var(--text-muted); font-weight: 500;
   text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px; }
 .pct-kind { display: inline-block; font-size: 10px; padding: 2px 6px;
@@ -81,7 +79,6 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
   align-items: center; gap: 8px; }
 .chart-title::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .chart-card[data-model="general"] { --accent: var(--accent-general); }
-.chart-card[data-model="video"]   { --accent: var(--accent-video); }
 .chart { height: 260px; }
 
 /* Statusbar */
@@ -113,6 +110,7 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 .badge.ok::before { background: var(--status-good); box-shadow: 0 0 6px var(--status-good); }
 .badge.err::before { background: var(--status-bad); }
 .form-error { color: var(--status-bad); font-size: 12px; margin: 4px 0 12px; }
+.form-success { color: var(--status-good); font-size: 12px; margin: 4px 0 12px; }
 .form-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .form-actions .spacer { flex: 1; }
 .form-actions button { background: var(--bg-card-hi); color: var(--text-primary);

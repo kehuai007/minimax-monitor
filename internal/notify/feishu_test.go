@@ -187,6 +187,37 @@ func TestBuildCardPayload_AlertCard_EmphasizesUsed(t *testing.T) {
 	}
 }
 
+func TestBuildCardPayload_AlertCard_TestTitle(t *testing.T) {
+	n := Notification{
+		IsTest:      true,
+		Model:       "general",
+		Severity:    SevInfo,
+		Remaining:   20,
+		Used:        80,
+		Threshold:   80,
+		FetchedAt:   time.Date(2026, 6, 28, 16, 42, 13, 0, time.UTC).UnixMilli(),
+	}
+	card := buildCardPayload(n)
+	body, _ := json.Marshal(card)
+	s := string(body)
+	// Title must switch to "[测试] " when IsTest — never include "配额告警" so
+	// the user is never misled into thinking a real alert fired.
+	if !strings.Contains(s, "[测试]") {
+		t.Errorf("expected '[测试]' title prefix; body=%s", s)
+	}
+	if strings.Contains(s, "配额告警") {
+		t.Errorf("test card should not include '配额告警' title; body=%s", s)
+	}
+	// Severity was forced to SevInfo so the template color is blue.
+	if !strings.Contains(s, `"template":"blue"`) {
+		t.Errorf("expected template=blue for test card; body=%s", s)
+	}
+	// Footer note should be the test-specific copy, not the trend line.
+	if !strings.Contains(s, "这是测试消息") {
+		t.Errorf("expected '这是测试消息' footer note; body=%s", s)
+	}
+}
+
 func TestBuildCardPayload_ResetCard_TitleAndFields(t *testing.T) {
 	maxConsumed := intPtr(87)
 	endAt := int64Ptr(time.Date(2026, 6, 28, 18, 45, 0, 0, time.UTC).UnixMilli())

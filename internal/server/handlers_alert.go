@@ -84,10 +84,6 @@ func (s *Server) handleAlertPut(c *gin.Context) {
 			return
 		}
 	}
-	if enabled && urlStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "url required when enabled"})
-		return
-	}
 
 	if s.DB == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "db unavailable"})
@@ -96,6 +92,18 @@ func (s *Server) handleAlertPut(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	prev, _ := s.DB.GetAlertConfig(ctx)
+
+	// An empty URL means "keep the previously configured URL". The frontend
+	// masks the URL for security and the UI explicitly tells the user
+	// "留空表示不变", so we cannot expect the client to re-send it. Only error
+	// when there is no previous URL to preserve.
+	if urlStr == "" {
+		if prev.URL == "" && enabled {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "url required when enabled"})
+			return
+		}
+		urlStr = prev.URL
+	}
 
 	if prev.Enabled && !enabled {
 		if err := s.DB.ClearAllAlertStates(ctx); err != nil {

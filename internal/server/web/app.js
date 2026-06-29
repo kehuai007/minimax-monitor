@@ -51,7 +51,10 @@
   function handleSnapshot(data) {
     const list = data.models || [];
     const fetchedAt = data.fetched_at || Date.now();
-    list.forEach((m) => state.models.set(m.model_name, { ...m, fetched_at: fetchedAt }));
+    list.forEach((m) => {
+      if (m.model_name === 'video') return;  // 视频模型不展示在 web 页面
+      state.models.set(m.model_name, { ...m, fetched_at: fetchedAt });
+    });
     renderCards();
     $('lastUpdate').textContent = fmtTime(fetchedAt);
     $('fetchAgo').textContent = fmtAgo(fetchedAt);
@@ -180,6 +183,7 @@
   const alertURL = $('alertURL');
   const alertThreshold = $('alertThreshold');
   const alertError = $('alertError');
+  const alertSuccess = $('alertSuccess');
   const alertTestBtn = $('alertTestBtn');
   const alertSaveBtn = $('alertSaveBtn');
 
@@ -228,8 +232,32 @@
     alertError.textContent = '';
   }
 
+  let alertSuccessTimer = null;
+  function showAlertSuccess(msg) {
+    if (alertSuccessTimer) {
+      clearTimeout(alertSuccessTimer);
+      alertSuccessTimer = null;
+    }
+    alertSuccess.textContent = msg;
+    alertSuccess.classList.remove('hidden');
+    alertSuccessTimer = setTimeout(() => {
+      alertSuccess.classList.add('hidden');
+      alertSuccess.textContent = '';
+      alertSuccessTimer = null;
+    }, 2500);
+  }
+  function clearAlertSuccess() {
+    if (alertSuccessTimer) {
+      clearTimeout(alertSuccessTimer);
+      alertSuccessTimer = null;
+    }
+    alertSuccess.classList.add('hidden');
+    alertSuccess.textContent = '';
+  }
+
   alertSaveBtn.addEventListener('click', async () => {
     clearAlertError();
+    clearAlertSuccess();
     alertSaveBtn.disabled = true;
     const orig = alertSaveBtn.textContent;
     alertSaveBtn.textContent = '保存中…';
@@ -252,6 +280,7 @@
         return;
       }
       await loadAlertConfig();
+      showAlertSuccess('✓ 已保存');
     } catch (e) {
       showAlertError(e.message);
     } finally {
@@ -371,7 +400,7 @@
 
   // -------- Charts --------
   const RANGE_MS = { '1h': 3600e3, '6h': 6 * 3600e3, '24h': 24 * 3600e3, '7d': 7 * 86400e3, '31d': 31 * 86400e3 };
-  const ACCENT = { general: '#00d4ff', video: '#a855f7' };
+  const ACCENT = { general: '#00d4ff' };
 
   async function refreshCharts() {
     const models = [...state.models.keys()];

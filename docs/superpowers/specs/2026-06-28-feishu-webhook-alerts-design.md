@@ -530,7 +530,8 @@ No new env vars. No new CLI flags.
 | DB read/write error in engine | log warn, skip this model this tick |
 | Threshold change at runtime | next tick reads fresh cfg; existing notified_pcts may no longer be relevant → on next reset they clear naturally |
 | Settings PUT with bad URL | 400 `{error:"url must be on open.feishu.cn or open.larksuite.com"}` |
-| Settings PUT with `enabled=true` but empty URL | 400 `{error:"url required when enabled"}` |
+| Settings PUT with `enabled=true` but empty URL and no prior URL | 400 `{error:"url required when enabled"}` |
+| Settings PUT with empty URL and prior URL exists | 200; URL preserved (frontend masks URL for security, so re-sending it is not possible) |
 | Test button with `enabled=false` | 400 `{error:"config_missing"}` |
 | Scheduler goroutine context cancel | alert evaluate aborts; broadcast unaffected |
 

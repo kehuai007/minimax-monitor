@@ -136,8 +136,13 @@ func (e *AlertEngine) Evaluate(ctx context.Context, snaps []storage.Snapshot) er
 	return nil
 }
 
-// SendTest dispatches a test card to the configured webhook. Does NOT touch
-// alert state. Returns the unix-ms timestamp when the call completed.
+// SendTest dispatches a test card mirroring a real threshold alert. It uses
+// the latest snapshot's full data (remaining, weekly, reset times, 10-min
+// trend, previous notified pct) so the user can verify the card layout that
+// production alerts will produce. Only IsTest and Severity differ from a real
+// alert: IsTest=true causes the title prefix to switch to "[测试]" and the
+// footer note to read "这是测试消息..."; Severity is forced to SevInfo so the
+// card template color is blue regardless of the snapshot's remaining value.
 func (e *AlertEngine) SendTest(ctx context.Context) (int64, error) {
 	cfg := e.cfgFn()
 	if !cfg.Enabled || cfg.URL == "" {
@@ -147,23 +152,45 @@ func (e *AlertEngine) SendTest(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	var model string
-	if len(snaps) > 0 {
-		model = snaps[0].ModelName
-	} else {
-		model = "general"
-	}
+
 	now := e.nowFn()
-	pct := 99
-	n := Notification{
-		IsTest:    true,
-		Model:     model,
-		Severity:  SevInfo,
-		Remaining: pct,
-		Used:      100 - pct,
-		Threshold: cfg.Threshold,
-		FetchedAt: now.UnixMilli(),
+
+	// Prefer the first latest snapshot with a real remaining value so the
+	// test card shows actual data. Fall back to a "general" placeholder at
+	// 100% remaining so the card still renders when no snapshot exists yet
+	// (e.g. right after install, before the first poll completes).
+	var s storage.Snapshot
+	picked := false
+	for _, snap := range snaps {
+		if snap.IntervalRemainingPct != nil {
+			s = snap
+			picked = true
+			break
+		}
 	}
+	if !picked {
+		pct := 100
+		s = storage.Snapshot{
+			ModelName:            "general",
+			IntervalRemainingPct: &pct,
+			FetchedAt:            now.UnixMilli(),
+		}
+	}
+
+	var trend []TrendPoint
+	var prevNotified []int
+	if picked {
+		trend = e.recentTrend(ctx, s.ModelName, now)
+		if st, err := e.db.GetAlertState(ctx, s.ModelName); err == nil {
+			prevNotified = st.NotifiedPcts
+		}
+	}
+
+	n := buildNotification(s, cfg.Threshold, *s.IntervalRemainingPct, prevNotified, trend, now)
+	n.IsTest = true
+	n.Severity = SevInfo
+	n.Kind = KindAlert
+
 	if err := e.notifier.Send(ctx, cfg.URL, n); err != nil {
 		return 0, err
 	}

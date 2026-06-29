@@ -218,6 +218,92 @@ func TestAlertEngine_SendTest_DoesNotTouchState(t *testing.T) {
 	}
 }
 
+// TestAlertEngine_SendTest_UsesLatestSnapshot confirms the test card mirrors a
+// real threshold alert: fields like remaining, weekly%, interval reset time, and
+// the prev-notified percent all come from the latest snapshot, not from
+// hardcoded literals.
+func TestAlertEngine_SendTest_UsesLatestSnapshot(t *testing.T) {
+	db := openTestDB(t)
+	fn := &fakeNotifier{}
+	ctx := context.Background()
+	_ = db.SetAlertConfig(ctx, storage.AlertConfig{Enabled: true, URL: "x", Threshold: 80})
+
+	// Seed a snapshot with full data (model=speech-01, remaining=18, end_at set,
+	// weekly 65% with weekly end_at) and a prior notified pct of 22.
+	weekly := 65
+	intervalEndAt := time.Now().Add(2 * time.Minute).UnixMilli()
+	weeklyEndAt := time.Now().Add(6 * 24 * time.Hour).UnixMilli()
+	if err := db.InsertOne(ctx, storage.Snapshot{
+		ModelName:            "speech-01",
+		IntervalRemainingPct: intPtr(18),
+		IntervalEndAt:        &intervalEndAt,
+		WeeklyRemainingPct:   &weekly,
+		WeeklyEndAt:          &weeklyEndAt,
+		FetchedAt:            time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := db.SetAlertState(ctx, "speech-01", storage.AlertState{NotifiedPcts: []int{22}}); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	eng := NewAlertEngine(db, fn, func() storage.AlertConfig {
+		c, _ := db.GetAlertConfig(ctx)
+		return c
+	})
+	if _, err := eng.SendTest(ctx); err != nil {
+		t.Fatalf("SendTest: %v", err)
+	}
+
+	calls := fn.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(calls))
+	}
+	n := calls[0]
+
+	// Card-style fields should mirror the real alert path.
+	if !n.IsTest {
+		t.Error("IsTest should be true")
+	}
+	if n.Kind != KindAlert {
+		t.Errorf("Kind = %q, want %q (alert card)", n.Kind, KindAlert)
+	}
+	if n.Model != "speech-01" {
+		t.Errorf("Model = %q, want %q (from snapshot)", n.Model, "speech-01")
+	}
+	if n.Remaining != 18 {
+		t.Errorf("Remaining = %d, want 18 (from snapshot)", n.Remaining)
+	}
+	if n.Used != 82 {
+		t.Errorf("Used = %d, want 82", n.Used)
+	}
+	if n.WeeklyRemainingPct == nil || *n.WeeklyRemainingPct != 65 {
+		t.Errorf("WeeklyRemainingPct = %v, want 65 (from snapshot)", n.WeeklyRemainingPct)
+	}
+	if n.PrevNotifiedPct == nil || *n.PrevNotifiedPct != 22 {
+		t.Errorf("PrevNotifiedPct = %v, want 22 (from alert state)", n.PrevNotifiedPct)
+	}
+	if n.IntervalResetAt == nil || *n.IntervalResetAt != intervalEndAt {
+		t.Errorf("IntervalResetAt = %v, want %d (from snapshot)", n.IntervalResetAt, intervalEndAt)
+	}
+	if n.WeeklyResetAt == nil || *n.WeeklyResetAt != weeklyEndAt {
+		t.Errorf("WeeklyResetAt = %v, want %d (from snapshot)", n.WeeklyResetAt, weeklyEndAt)
+	}
+
+	// Severity is forced to SevInfo so the template color is blue regardless
+	// of how much remaining there is — a low-remaining snapshot shouldn't make
+	// the test card look like a real critical alert.
+	if n.Severity != SevInfo {
+		t.Errorf("Severity = %v, want SevInfo for test", n.Severity)
+	}
+
+	// State must NOT be advanced — SendTest is read-only with respect to dedup.
+	st, _ := db.GetAlertState(ctx, "speech-01")
+	if len(st.NotifiedPcts) != 1 || st.NotifiedPcts[0] != 22 {
+		t.Errorf("state touched by SendTest; got %v, want [22]", st.NotifiedPcts)
+	}
+}
+
 func TestAlertEngine_NilRemaining_Skipped(t *testing.T) {
 	db := openTestDB(t)
 	fn := &fakeNotifier{}

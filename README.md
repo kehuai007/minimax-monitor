@@ -52,6 +52,11 @@ custom bot when the configured **consumption** threshold is crossed.
    the 5-minute window resets.
 4. Click "保存", then "发送测试" to verify delivery.
 
+The Webhook URL is shown masked in the UI (the full URL contains a bot
+secret). To keep an existing URL while toggling "启用" or changing the
+threshold, just leave the URL field empty — it preserves the saved URL.
+Only paste a new URL when you actually want to replace it.
+
 When the 5-minute interval window rolls over after real usage, a separate
 `🔄 配额重置` card is also delivered, summarising the highest consumption
 reached during the closing window.

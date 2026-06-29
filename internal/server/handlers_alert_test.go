@@ -122,6 +122,39 @@ func TestAlertPut_EnabledRequiresURL(t *testing.T) {
 	}
 }
 
+func TestAlertPut_EmptyURLPreservesPrevious(t *testing.T) {
+	s, db := newTestServerWithDB(t)
+	ctx := context.Background()
+	prevURL := "https://open.feishu.cn/open-apis/bot/v2/hook/abc"
+	if err := db.SetAlertConfig(ctx, storage.AlertConfig{
+		Enabled: false, URL: prevURL, Threshold: 80,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Simulates the user toggling enabled without re-pasting the masked URL.
+	body := `{"enabled":true,"url":"","threshold":85}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/api/settings/alert",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	s.Engine.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body=%s", w.Code, w.Body.String())
+	}
+
+	cfg, _ := db.GetAlertConfig(ctx)
+	if cfg.URL != prevURL {
+		t.Errorf("url = %q, want preserved %q", cfg.URL, prevURL)
+	}
+	if !cfg.Enabled {
+		t.Errorf("enabled = false, want true")
+	}
+	if cfg.Threshold != 85 {
+		t.Errorf("threshold = %d, want 85", cfg.Threshold)
+	}
+}
+
 func TestAlertPut_DisableClearsState(t *testing.T) {
 	s, db := newTestServerWithDB(t)
 	ctx := context.Background()
